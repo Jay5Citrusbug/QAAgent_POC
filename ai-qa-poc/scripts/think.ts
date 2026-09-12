@@ -59,6 +59,9 @@ const existingTests = readIfPresent(feature.existingTestsFile);
 const schema = readIfPresent(path.join(PATHS.schemas, 'test-mission.schema.json'));
 const analysisTemplate = readIfPresent(path.join(PATHS.thinking, 'ANALYSIS_TEMPLATE.md'));
 const coverageChecklist = readIfPresent(path.join(PATHS.thinking, 'COVERAGE_CHECKLIST.md'));
+const observed = readIfPresent(
+  path.join(PATHS.knowledge, 'observed', `${featureName ?? 'default'}.md`),
+);
 
 // A worked example does more for schema-valid output than another page of rules.
 // Prefer a real approved mission; fall back to the draft.
@@ -94,6 +97,25 @@ ${section('Application context', appContext, 'yaml')}
 ${section('Requirement under test', requirement)}
 ${section('Supporting documentation', documentation)}
 ${section('Existing coverage', existingTests)}
+${
+  observed
+    ? `---
+
+${observed}
+
+**Use the observed state above in preference to any assumption.** It was captured
+from the running application. If a control you were about to target is not listed,
+it does not exist — report that as a gap rather than writing a mission against it.
+`
+    : `---
+
+## Observed application state
+
+_Not captured._ Run \`npm run inspect -- --feature ${featureName ?? '<feature>'}\` first.
+Without it you are describing a page you have never seen, which is how missions end up
+asserting UI that does not exist.
+`
+}
 
 ---
 

@@ -42,6 +42,14 @@ You do **not** execute anything. You do **not** write Playwright code. You do
 
 ## Hard rules
 
+0. **Look at the observed application state before anything else.** The prompt
+   pack carries a capture of the real page — what controls exist, what they are
+   called, which names are ambiguous, and what is *absent*. Assertions written
+   without it invent UI: a cart count badge that does not exist, an
+   `aria-pressed` attribute the page never uses. If something is not in that
+   capture, it does not exist; that is a gap to report, not an assertion to
+   write.
+
 1. **Never invent expected behaviour.** If the requirement does not state what
    should happen, that is a gap you report — not a blank you fill. A mission
    asserting invented behaviour is worse than no mission: it produces a

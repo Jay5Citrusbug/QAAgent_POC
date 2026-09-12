@@ -97,6 +97,24 @@ a result traceable back to a requirement rather than just to a test id.
 
 ## 6. Creating missions — the Thinking Agent
 
+### First: look at the application
+
+```bash
+npm run inspect -- --feature ecommerce
+```
+
+Captures the real page into `knowledge/observed/<feature>.md` — what controls
+exist and what they are called, which names are ambiguous, and **what is
+absent**.
+
+This step exists because it was skipped. Writing missions from requirement prose
+alone produced assertions against UI that does not exist: a cart count badge,
+an `aria-pressed` attribute the page never uses. A tester opens the app before
+writing tests; so should the agent. Re-run it whenever the application changes —
+a stale capture is worse than none, because it gets believed.
+
+### Then: generate
+
 ```bash
 npm run think              # assemble the prompt pack
 npm run think -- --copy    # ...and copy it to the clipboard
@@ -330,7 +348,7 @@ missions/approved/               Gate 1 passed — the only thing that runs
 runs/                            evidence, one directory per run
 reports/                         Markdown summaries for Gate 2
 schemas/                         the two contracts, authoritative
-scripts/                         think · validate · approve · run-mission · report
+scripts/                         inspect · think · validate · approve · run-mission · coverage · report
 src/                             the Execution Agent
 docs/BASELINE.md                 the KPI measurement, filled in by hand
 ```
