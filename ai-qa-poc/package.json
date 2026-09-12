@@ -25,6 +25,8 @@
     "coverage": "tsx scripts/coverage.ts",
     "metrics": "tsx scripts/metrics.ts",
     "report": "tsx scripts/report.ts",
+    "promote": "tsx scripts/promote.ts",
+    "regression": "playwright test",
     "browsers": "playwright install chromium",
     "auth": "tsx scripts/auth.ts",
     "web": "npm --prefix web run dev"
