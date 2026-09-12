@@ -94,6 +94,39 @@ export function lintMission(m: TestMission): string[] {
       }
     }
 
+    /**
+     * The statement promises something the check cannot actually detect.
+     *
+     * This is the failure mode behind both false passes found so far. A
+     * mission asserted the logo "is visible and rendered (not a broken image
+     * placeholder)" with a `visible` check — but a broken <img> IS visible,
+     * so it passed against a 404ing image. The human reading Gate 1 sees the
+     * promise in the statement and assumes the check delivers it.
+     */
+    const says = a.statement.toLowerCase();
+    const t = a.check.type;
+
+    if (/broken|placeholder|loads?|renders?|displays? correctly/.test(says) && t === 'visible') {
+      warnings.push(
+        `Assertion ${a.id}: the statement promises the image actually loaded, but a "visible" check cannot detect that — ` +
+          `a broken image is still visible. Use check type "image_loaded".`,
+      );
+    }
+
+    if (/accessible name|screen reader|aria-label|labell?ed/.test(says) && (t === 'visible' || t === 'enabled')) {
+      warnings.push(
+        `Assertion ${a.id}: the statement is about an accessible name, but "${t}" does not check one. ` +
+          `Use check type "has_accessible_name".`,
+      );
+    }
+
+    if (/not.*(empty|blank|missing)/.test(says) && t === 'visible') {
+      warnings.push(
+        `Assertion ${a.id}: the statement claims something is not empty/blank, but "visible" only checks the element is rendered. ` +
+          `Pick a check that inspects content.`,
+      );
+    }
+
     // An assertion about one region that could match an identical element
     // elsewhere grades whichever it happens to find first. Targeting the
     // landmark itself (role=contentinfo for a footer, navigation for a nav)

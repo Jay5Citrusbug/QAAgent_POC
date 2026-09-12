@@ -160,6 +160,72 @@ export async function evaluateAssertion(
         break;
       }
 
+      case 'image_loaded': {
+        /**
+         * A broken image is still "visible": the <img> element exists, takes
+         * up space, and is not hidden — so toBeVisible() passes while the
+         * browser draws a broken-image placeholder.
+         *
+         * This is not hypothetical. A generated mission asserted the brand
+         * logo "is visible and rendered (not a broken image placeholder)"
+         * using a visible check, and reported PASS against
+         * src="/broken-logo.png", which 404s.
+         *
+         * naturalWidth is the only honest signal: it is 0 until the image
+         * actually decodes.
+         */
+        const state = await locator.evaluate((el) => {
+          const img = el as HTMLImageElement;
+          if (img.tagName !== 'IMG') return { isImage: false, complete: false, naturalWidth: 0, src: '' };
+          return { isImage: true, complete: img.complete, naturalWidth: img.naturalWidth, src: img.currentSrc || img.src };
+        });
+
+        if (!state.isImage) {
+          result.evaluable = false;
+          result.error = 'image_loaded was used on an element that is not an <img>.';
+          break;
+        }
+
+        result.observed = `naturalWidth=${state.naturalWidth}, src=${state.src}`;
+        result.passed = state.complete && state.naturalWidth > 0;
+        if (!result.passed) {
+          result.error = `Image did not load (naturalWidth=${state.naturalWidth}). The element is present but the image data is missing — a broken-image placeholder. src: ${state.src}`;
+        }
+        break;
+      }
+
+      case 'has_accessible_name': {
+        /**
+         * Icon-only controls routinely ship with no label: the element is
+         * visible, clickable and completely unusable to a screen reader.
+         * A visible check cannot see that.
+         */
+        const name = await locator.evaluate((el) => {
+          const aria = el.getAttribute('aria-label')?.trim();
+          if (aria) return aria;
+          const labelledBy = el.getAttribute('aria-labelledby');
+          if (labelledBy) {
+            const ref = el.ownerDocument.getElementById(labelledBy);
+            if (ref?.textContent?.trim()) return ref.textContent.trim();
+          }
+          const title = el.getAttribute('title')?.trim();
+          if (title) return title;
+          const alt = el.getAttribute('alt')?.trim();
+          if (alt) return alt;
+          return el.textContent?.trim() ?? '';
+        });
+
+        result.observed = name ? `accessible name: "${name}"` : 'no accessible name';
+        if (expected !== undefined) {
+          result.passed = name.toLowerCase() === expected.toLowerCase();
+          if (!result.passed) result.error = `Accessible name was "${name}", expected "${expected}".`;
+        } else {
+          result.passed = name.length > 0;
+          if (!result.passed) result.error = 'Element exposes no accessible name — unusable to assistive tech.';
+        }
+        break;
+      }
+
       case 'attribute_equals': {
         if (!check.attribute || expected === undefined) {
           result.evaluable = false;

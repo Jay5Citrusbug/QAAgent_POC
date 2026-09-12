@@ -22,7 +22,7 @@
   "preconditions": [
     "Application is loaded at the home page"
   ],
-  "test_objective": "Verify the brand logo image loads and renders correctly in the top navigation bar.",
+  "test_objective": "Verify the brand logo image loads in the top navigation bar.",
   "expected_outcome": "succeeds",
   "actions": [
     {
@@ -34,15 +34,20 @@
   "assertions": [
     {
       "id": "A1",
-      "statement": "The brand logo image is visible and rendered (not a broken image placeholder).",
+      "statement": "The brand logo image actually loads (not a broken-image placeholder).",
       "check": {
-        "type": "visible",
+        "type": "image_loaded",
         "target": {
-          "description": "Brand logo image in top-left of navigation bar",
+          "description": "Brand logo image in the top navigation bar",
           "role": "img",
-          "name": "logo"
+          "name": "Logo",
+          "within": {
+            "description": "top navigation bar",
+            "role": "navigation"
+          }
         }
-      }
+      },
+      "critical": true
     }
   ],
   "evidence_policy": {

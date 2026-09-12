@@ -40,7 +40,11 @@ export type CheckType =
   | 'disabled'
   | 'count'
   | 'url_contains'
-  | 'attribute_equals';
+  | 'attribute_equals'
+  /** The image actually decoded. A broken <img> is still "visible". */
+  | 'image_loaded'
+  /** The element exposes a non-empty accessible name (icon-only controls). */
+  | 'has_accessible_name';
 
 export type ResolutionStrategy =
   | 'cache'

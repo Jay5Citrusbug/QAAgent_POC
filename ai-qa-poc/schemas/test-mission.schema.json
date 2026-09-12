@@ -161,7 +161,7 @@
             "properties": {
               "type": {
                 "type": "string",
-                "enum": ["visible", "not_visible", "text_equals", "text_contains", "enabled", "disabled", "count", "url_contains", "attribute_equals"]
+                "enum": ["visible", "not_visible", "text_equals", "text_contains", "enabled", "disabled", "count", "url_contains", "attribute_equals", "image_loaded", "has_accessible_name"]
               },
               "target": { "$ref": "#/$defs/target" },
               "value": { "type": ["string", "number"], "description": "Expected value, where the check type needs one. Supports {run_id} substitution." },
