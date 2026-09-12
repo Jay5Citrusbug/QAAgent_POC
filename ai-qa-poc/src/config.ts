@@ -16,6 +16,13 @@ export const PATHS = {
   locatorCache: path.join(ROOT, 'knowledge', 'locator-cache.json'),
   missionsDraft: path.join(ROOT, 'missions', 'draft'),
   missionsApproved: path.join(ROOT, 'missions', 'approved'),
+  /**
+   * [R3] Test intents — written before the application exists, so they live
+   * beside the missions rather than inside them. Gate 1 moves draft →
+   * approved here; the Mapper reads approved/ and writes missions/draft/.
+   */
+  intentsDraft: path.join(ROOT, 'intents', 'draft'),
+  intentsApproved: path.join(ROOT, 'intents', 'approved'),
   thinking: path.join(ROOT, 'agent', 'thinking'),
   thinkingConfig: path.join(ROOT, 'agent', 'thinking', 'config.yaml'),
   /** Generated prompt packs — rebuildable, so gitignored. */

@@ -22,6 +22,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { featurePaths, loadThinkingConfig, PATHS, rel } from '../src/config.js';
 import { buildHistory, renderHistory } from '../src/history.js';
+import { ledgerPath, loadLedger, renderLedger } from '../src/clarifications.js';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -58,6 +59,17 @@ const requirement = readIfPresent(path.join(feature.requirementDir, 'requirement
 const documentation = readIfPresent(feature.documentationFile);
 const existingTests = readIfPresent(feature.existingTestsFile);
 const schema = readIfPresent(path.join(PATHS.schemas, 'test-mission.schema.json'));
+const intentSchema = readIfPresent(path.join(PATHS.schemas, 'test-intent.schema.json'));
+
+/**
+ * [R3] Questions already asked, and their answers.
+ *
+ * Without this the agent re-raises the same gap on every run, which trains the
+ * reader to skim the gap list — and the gap list is the most valuable thing it
+ * produces. Answers are authoritative: they ARE the requirement now.
+ */
+const ledgerFile = ledgerPath(featureName);
+const ledgerSection = renderLedger(loadLedger(featureName));
 const analysisTemplate = readIfPresent(path.join(PATHS.thinking, 'ANALYSIS_TEMPLATE.md'));
 const coverageChecklist = readIfPresent(path.join(PATHS.thinking, 'COVERAGE_CHECKLIST.md'));
 const observed = readIfPresent(
@@ -69,7 +81,27 @@ const observed = readIfPresent(
 const idPrefix = arg('prefix');
 const history = renderHistory(buildHistory(idPrefix));
 
-const exampleFile = pickExample(idPrefix);
+/**
+ * [R3] Pick the example that matches the contract being asked for.
+ *
+ * A worked example does more for schema-valid output than another page of
+ * rules — which cuts both ways. Showing a bound mission to an agent that must
+ * produce a UI-free intent teaches it exactly the shape we are trying to stop
+ * it writing.
+ */
+function pickIntentExample(): string | undefined {
+  for (const dir of [PATHS.intentsApproved, PATHS.intentsDraft]) {
+    if (!fs.existsSync(dir)) continue;
+    const found = fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.json'))
+      .sort()[0];
+    if (found) return path.join(dir, found);
+  }
+  return undefined;
+}
+
+const exampleFile = observed ? pickExample(idPrefix) : pickIntentExample();
 const example = exampleFile ? fs.readFileSync(exampleFile, 'utf8').trim() : undefined;
 
 /**
@@ -108,6 +140,60 @@ if (!requirement) {
 }
 
 const today = new Date().toISOString().slice(0, 10);
+
+const ledgerBlock = ledgerSection ? '---\n\n' + ledgerSection + '\n' : '';
+
+/**
+ * [R3] Which contracts the agent is held to on this run.
+ *
+ * Intents always. Missions only when the application has actually been
+ * observed — without a capture, every target in a mission would be invented,
+ * which is not a risk to warn about but a thing that cannot be done.
+ */
+const contracts = [
+  '---',
+  '',
+  '# The intent contract — authoritative, and your primary output',
+  '',
+  'A **test intent** says what is being tested and what must be observably true.',
+  'It says nothing about where to click, because before the application is built',
+  'nobody knows — and a guessed control is a fabricated fact that survives into',
+  'execution looking like a real test.',
+  '',
+  'There is deliberately no target, no action enum and no selector in this schema.',
+  'You are not being asked to resist naming a button; the contract cannot express one.',
+  '',
+  '```json',
+  intentSchema ?? '(intent schema missing)',
+  '```',
+  '',
+  ...(observed
+    ? [
+        '---',
+        '',
+        '# The mission contract — authoritative',
+        '',
+        'The application is running and its real page is captured above, so you may',
+        'also produce bound missions directly. Each must validate against this schema',
+        'exactly. Do not work from memory of a similar schema.',
+        '',
+        '```json',
+        schema ?? '(schema missing)',
+        '```',
+        '',
+      ]
+    : [
+        '---',
+        '',
+        '# Missions: not yours to write on this run',
+        '',
+        'No page capture exists, so the application cannot be observed. Under those',
+        'conditions a mission is unwriteable rather than merely risky — every target in',
+        'it would be invented. Produce intents only. When a front-end URL exists, the',
+        'Mapper binds them to the real page and a human approves the binding at Gate 1.5.',
+        '',
+      ]),
+].join('\n');
 
 const pack = `# QA Thinking Agent — prompt pack
 
@@ -149,26 +235,15 @@ asserting UI that does not exist.
 `
 }
 
----
-
-# The mission contract — authoritative
-
-Every mission you produce must validate against this JSON Schema exactly. It is
-reproduced here in full because you cannot open files; do not work from memory
-of a similar schema.
-
-\`\`\`json
-${schema ?? '(schema missing)'}
-\`\`\`
-
+${ledgerBlock}${contracts}
 ${
   example
     ? `---
 
-# Worked example — a complete, valid mission
+# Worked example — a complete, valid ${observed ? 'mission' : 'intent'}
 
-This is a real mission from this repository (\`${rel(exampleFile as string)}\`).
-Match this shape.
+This is a real ${observed ? 'mission' : 'intent'} from this repository
+(\`${rel(exampleFile as string)}\`). Match this shape.
 
 \`\`\`json
 ${example}
@@ -202,20 +277,48 @@ ${analysisTemplate ?? '(template missing)'}
 1. **Analyse the requirement** in the structure above. Gaps are questions for
    the requirement author — never blanks you fill in with something plausible.
 
-2. **Produce draft missions** as separate JSON objects, each one labelled with
-   the filename it should be saved as (\`missions/draft/<TEST_ID>.json\`).
+2. **List new clarification questions** under their own heading, in the ledger
+   format, so a human can paste them straight into \`clarifications.yaml\`:
+
+   \`\`\`yaml
+   - id: Q-<next>
+     question: >-
+       ...
+     why: >-
+       which intent is stuck, or what breaks if we guess
+     status: open
+     answer: null
+   \`\`\`
+
+   Do not repeat a question the ledger above already carries.
+
+3. **Produce draft test intents** as separate JSON objects, each labelled with
+   the filename it should be saved as (\`intents/draft/<TEST_ID>.json\`).
 
 Rules that decide whether your output is usable:
 
-* Every assertion needs both a human \`statement\` and a machine-checkable \`check\`.
-* Targets are semantic (\`role\` + \`name\`, \`label\`, \`placeholder\`, \`text\`) — never CSS.
-  You cannot see the DOM, so a guessed selector is a fabricated fact.
-* \`expected_outcome: "blocked"\` for negative missions, and mark the step the
-  application should refuse with \`tolerate_failure: true\`.
-* Anything that creates data needs \`{run_id}\` in its \`naming_pattern\`.
-* Fill \`requirement_ref\` with the file path and the sentence the mission comes from.
-* Set a \`budget\`.
-* Tag every mission with \`coverage.category\`, and mark anything the browser agent cannot run as \`execution_mode: "manual"\` with a reason.
+* **An intent names no UI.** No role, no accessible name, no selector, no
+  "click the button in the top right". Write what the actor is trying to achieve.
+  If you cannot say it without naming a control, it is a binding detail and it
+  belongs to the Mapper, not to you.
+* Every outcome needs a human \`statement\` and an \`observable\` saying what kind
+  of evidence would settle it.
+* A \`blocked\` intent must assert **what the user is told**, not only that nothing
+  happened. "Not signed in" is equally true of a correct refusal and of a crash.
+* Anything resting on an unanswered question declares it in
+  \`depends_on_clarifications\`. Do not guess the answer to make the intent
+  writable — a declared dependency is the correct output.
+* Say in \`test_data\` what **state** the data must be in, and how it is
+  provisioned. \`unknown\` is an honest and useful answer: it lists, before anyone
+  wastes a sprint, exactly which intents have no way to run yet.
+* Mark data \`disposable\` when the test consumes it — a lockout test poisons the
+  account for every later run, and that needs a fresh instance, not cleanup.
+* Fill \`requirement_ref\` with the file path and the sentence the intent comes from.
+* Tag every intent with \`coverage.category\`, and mark anything the browser agent
+  cannot run as \`execution_mode: "manual"\` with a reason.
+* Use \`not_verifiable_yet\` for what the intent *should* check but nothing can —
+  no API client, no database, no visual comparison. An unstated hole is how a
+  suite comes to look more complete than it is.
 
 Then stop. A human decides what gets approved — you are not the gate.
 `;
@@ -241,7 +344,8 @@ console.log(`Prompt pack written: ${rel(outFile)}`);
 console.log('');
 console.log(`  Model            ${cfg.model} (effort ${cfg.effort})`);
 console.log(`  Size             ~${approxTokens.toLocaleString()} tokens in (~$${approxCost} input)`);
-console.log(`  Schema inlined   ${schema ? 'yes' : 'NO — missions will not validate'}`);
+console.log(`  Contract         ${observed ? 'intents + missions (page observed)' : 'intents only (no page capture)'}`);
+console.log(`  Schema inlined   ${intentSchema ? 'yes' : 'NO — intents will not validate'}`);
 console.log(`  Worked example   ${example ? `yes (${path.basename(exampleFile as string)})` : 'no'}`);
 console.log('');
 
@@ -258,7 +362,20 @@ if (process.argv.includes('--copy')) {
 
 console.log('Next:');
 console.log(`  1. Paste the pack into ${cfg.model}.`);
-console.log(`  2. Save the analysis  → thinking/analysis/${featureName ?? '<feature>'}-${today}.md`);
-console.log('  3. Save each mission  → missions/draft/<TEST_ID>.json');
-console.log('  4. npm run validate');
-console.log('  5. npm run approve -- <TEST_ID> --by "<your name>" --minutes <n>');
+console.log(`  2. Save the analysis        → thinking/analysis/${featureName ?? 'default'}-${today}.md`);
+console.log('  3. Append any new questions → ' + rel(ledgerFile));
+console.log('  4. Save each intent         → intents/draft/<TEST_ID>.json');
+if (observed) console.log('  5. Save each mission        → missions/draft/<TEST_ID>.json');
+console.log(`  ${observed ? 6 : 5}. npm run validate`);
+console.log(
+  `  ${observed ? 7 : 6}. npm run approve-intent -- <TEST_ID> --by "<your name>" --minutes <n>`,
+);
+console.log('');
+
+if (!observed) {
+  console.log('No page capture for this feature, so the pack asks for intents only.');
+  console.log('That is the correct output before a front-end exists — a mission written');
+  console.log('now would have an invented target in every step. When the build lands:');
+  console.log(`  npm run inspect -- --feature ${featureName ?? '<feature>'} --url <URL>`);
+  console.log('');
+}

@@ -273,6 +273,83 @@ export interface ExecutionResult {
   notes: string[];
 }
 
+/**
+ * [R3] The UI-free half of the two-phase test — VISION section 5a.
+ *
+ * Mirrors schemas/test-intent.schema.json. Note what is absent and must stay
+ * absent: there is no TargetSpec, no action enum, no CheckType. An intent that
+ * could name a control would be a mission with fields missing, and the whole
+ * point is that it is a different kind of thing.
+ */
+export type Observable =
+  | 'message_shown'
+  | 'navigation'
+  | 'state_change'
+  | 'element_present'
+  | 'element_absent'
+  | 'value_equals'
+  | 'data_persisted'
+  | 'access_denied';
+
+export interface IntentStep {
+  id: string;
+  actor_intent: string;
+  data_ref?: string;
+  note?: string;
+}
+
+export interface IntentOutcome {
+  id: string;
+  statement: string;
+  observable: Observable;
+  critical?: boolean;
+  note?: string;
+}
+
+export interface IntentTestData {
+  name: string;
+  description: string;
+  provisioning?: 'seeded' | 'created_by_test' | 'manual' | 'unknown';
+  disposable?: boolean;
+}
+
+export interface TestIntent {
+  test_id: string;
+  requirement_ref?: {
+    source: 'DOC' | 'TICKET' | 'CHAT_TRANSCRIPT' | 'VERBAL';
+    locator: string;
+    content_hash?: string;
+    quote?: string;
+  };
+  depends_on_clarifications?: string[];
+  feature: string;
+  module?: string;
+  capability: string;
+  priority: Priority;
+  actor: string;
+  test_objective: string;
+  expected_outcome: 'succeeds' | 'blocked';
+  preconditions: string[];
+  test_data?: IntentTestData[];
+  coverage: {
+    category: CoverageCategory;
+    secondary_categories?: string[];
+    execution_mode?: 'automated' | 'manual' | 'assisted';
+    manual_reason?: string;
+  };
+  steps: IntentStep[];
+  outcomes: IntentOutcome[];
+  not_verifiable_yet?: string[];
+  assumption?: boolean;
+  approval?: {
+    approved_by: string;
+    approved_at: string;
+    edits_made?: boolean;
+    review_minutes?: number;
+    clarification_hashes?: Record<string, string>;
+  };
+}
+
 /** Cache of elements resolved successfully before. Written, not hand-maintained. */
 export interface LocatorCacheEntry {
   description?: string;

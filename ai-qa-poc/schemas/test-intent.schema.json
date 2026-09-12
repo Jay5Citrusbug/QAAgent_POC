@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qagents.local/schemas/test-intent.schema.json",
+  "title": "Test Intent",
+  "description": "[R3] A test written at story time, before the application exists. It says WHAT is being tested and WHAT must be observably true. It says nothing about where to click, because it cannot yet know. The Mapper (Agent 4) binds an approved intent to a real page to produce a Test Mission. See VISION section 5a.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "test_id",
+    "feature",
+    "capability",
+    "priority",
+    "actor",
+    "test_objective",
+    "expected_outcome",
+    "preconditions",
+    "steps",
+    "outcomes",
+    "coverage"
+  ],
+  "properties": {
+    "test_id": {
+      "type": "string",
+      "pattern": "^[A-Z]{2,4}-[0-9]{3}$",
+      "description": "Stable identifier, carried unchanged onto the mission the Mapper produces and onto every result. One id, one thread, requirement to defect."
+    },
+
+    "requirement_ref": {
+      "type": "object",
+      "description": "Traceability to the source requirement. Same shape as the mission's, so the Mapper copies it straight through.",
+      "additionalProperties": false,
+      "required": ["source", "locator"],
+      "properties": {
+        "source": { "type": "string", "enum": ["DOC", "TICKET", "CHAT_TRANSCRIPT", "VERBAL"] },
+        "locator": { "type": "string", "description": "Path under input/feature*/, a ticket key, or a URL." },
+        "content_hash": { "type": "string", "description": "sha256 of the captured requirement text, stamped at approval. Detects the requirement changing under an unchanged intent." },
+        "quote": { "type": "string", "description": "The specific sentence(s) this intent is derived from." }
+      }
+    },
+
+    "depends_on_clarifications": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^Q-[0-9]+$" },
+      "description": "[R3] Ids from input/feature*/clarifications.yaml that this intent's expected behaviour rests on. THE ENFORCEMENT HOOK: while any listed question is still 'open', Gate 1 refuses this intent. That is how 'never invent expected behaviour' stops being advice. A question answered as 'assumed' passes, but stamps assumption: true."
+    },
+
+    "feature": { "type": "string" },
+    "module": {
+      "type": "string",
+      "description": "Optional at intent time. The module may not exist in knowledge/application-context.yaml yet, because it may not be built yet. The Mapper fills it in."
+    },
+    "capability": { "type": "string", "description": "Dotted capability path, e.g. Auth.SignIn. A statement of product intent, not of UI." },
+    "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+
+    "actor": {
+      "type": "string",
+      "description": "Who is doing this, in product terms - 'Admin', 'an unauthenticated visitor', 'a user whose password has expired'. Deliberately NOT the mission's 'role' field, which must resolve against application-context.yaml. At intent time the role matrix may not be decided."
+    },
+
+    "test_objective": {
+      "type": "string",
+      "description": "One sentence. Neither the Mapper nor the Execution Agent may alter it."
+    },
+
+    "expected_outcome": {
+      "type": "string",
+      "enum": ["succeeds", "blocked"],
+      "description": "'blocked' means the application refusing the action is a PASS. Set here rather than at binding time, because it is a statement about the requirement, not about the UI."
+    },
+
+    "preconditions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "State that must hold before step 1, in business language: 'the account exists and is locked'. An unmet precondition is BLOCKED, never FAIL."
+    },
+
+    "test_data": {
+      "type": "array",
+      "description": "[R3] What STATE the data must be in, not which file to upload. Login is the case that proves why this belongs at intent time: half of a login suite needs accounts that are locked, expired, unverified or MFA-enrolled. Without somewhere to say so, those cases are generated, approved, and then turn out to be unrunnable - which looks exactly like the system failing.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description"],
+        "properties": {
+          "name": { "type": "string", "description": "Referenced by a step's data_ref." },
+          "description": { "type": "string", "description": "The state required, e.g. 'a user account locked by 5 failed attempts'." },
+          "provisioning": {
+            "type": "string",
+            "enum": ["seeded", "created_by_test", "manual", "unknown"],
+            "description": "'unknown' is honest and useful: it lists, before anyone wastes a sprint, exactly which intents have no way to run yet."
+          },
+          "disposable": {
+            "type": "boolean",
+            "description": "True when the test consumes the account's usability - a lockout test poisons the account for every later run. Disposable data needs a fresh instance per run, not cleanup."
+          }
+        }
+      }
+    },
+
+    "coverage": {
+      "type": "object",
+      "description": "Which QA checklist area this covers. See agent/thinking/COVERAGE_CHECKLIST.md.",
+      "additionalProperties": false,
+      "required": ["category"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": [
+            "requirement_based",
+            "functional",
+            "negative",
+            "input_validation",
+            "navigation",
+            "edge_case",
+            "ui_ux",
+            "data_integrity",
+            "error_handling",
+            "security",
+            "api",
+            "integration",
+            "compatibility",
+            "responsive"
+          ]
+        },
+        "secondary_categories": { "type": "array", "items": { "type": "string" } },
+        "execution_mode": {
+          "type": "string",
+          "enum": ["automated", "manual", "assisted"],
+          "description": "Best current guess. The Mapper may downgrade it to manual once it sees the real page; it may never upgrade it."
+        },
+        "manual_reason": { "type": "string" }
+      }
+    },
+
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "description": "[R3] What the actor does, in business language. There is deliberately no action enum, no target, no selector - not because the author should be careful, but because the schema cannot express one. The failure mode is designed out rather than warned about.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "actor_intent"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^S[0-9]+$" },
+          "actor_intent": {
+            "type": "string",
+            "description": "One thing the actor does: 'submit credentials for an account that is locked'. If you cannot write it without naming a button, it is a binding detail and belongs to the Mapper."
+          },
+          "data_ref": { "type": "string", "description": "Name from test_data." },
+          "note": { "type": "string", "description": "Anything the Mapper or a human reviewer needs to know about this step." }
+        }
+      }
+    },
+
+    "outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "[R3] What must be observably true afterwards. The Mapper turns each of these into a mission assertion with a machine-checkable check; until then it stays a claim about the product, not about the DOM.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "observable"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^O[0-9]+$" },
+          "statement": {
+            "type": "string",
+            "description": "The human sentence. This is what the reviewer - possibly the BA who wrote the story - reads at Gate 1."
+          },
+          "observable": {
+            "type": "string",
+            "enum": [
+              "message_shown",
+              "navigation",
+              "state_change",
+              "element_present",
+              "element_absent",
+              "value_equals",
+              "data_persisted",
+              "access_denied"
+            ],
+            "description": "What KIND of evidence would settle this. The one concession to the executing side: enough for the Mapper to know which family of check to bind, while still saying nothing about the UI."
+          },
+          "critical": {
+            "type": "boolean",
+            "description": "Defaults to true. A non-critical outcome failing degrades the result to INCONCLUSIVE rather than FAIL."
+          },
+          "note": { "type": "string" }
+        }
+      }
+    },
+
+    "not_verifiable_yet": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[R3] Things this intent SHOULD check but currently cannot - no API client, no database access, no visual comparison, no second role. Written down here so the hole is scheduled rather than forgotten. Silence is not the same as 'fully covered', and an unstated gap is how a suite comes to look more complete than it is."
+    },
+
+    "assumption": {
+      "type": "boolean",
+      "description": "[R3] Stamped at approval when any depended-on clarification was answered 'assumed' rather than confirmed. It rides through the mission into the run report, so nobody mistakes a guess for an agreed requirement when the result comes back."
+    },
+
+    "approval": {
+      "type": "object",
+      "description": "Gate 1, made machine-checkable. The Mapper refuses any intent outside intents/approved/ or with this block absent.",
+      "additionalProperties": false,
+      "required": ["approved_by", "approved_at"],
+      "properties": {
+        "approved_by": { "type": "string" },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "edits_made": { "type": "boolean", "description": "Did the human change the generated intent? Feeds the edit rate in docs/BASELINE.md." },
+        "review_minutes": { "type": "number", "description": "The point of the intent/mission split is that this number should be SMALLER than the R2 mission review time. If it is not, the split is not paying for itself." },
+        "clarification_hashes": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Q-id to sha256 of the answer text as it read at approval. If an answer is later revised and the intent is not, the intent is flagged stale instead of quietly testing a rule nobody agreed to any more."
+        }
+      }
+    }
+  }
+}

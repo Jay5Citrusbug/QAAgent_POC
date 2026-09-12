@@ -9,6 +9,9 @@ human approves it.
 * `input/feature/requirement.md` — the requirement under test
 * `input/feature/documentation.md` — supporting product documentation
 * `input/feature/existing-tests.md` — what is already covered
+* `input/feature/clarifications.yaml` — **[R3]** questions already asked, and
+  their answers. An answered question is part of the requirement now. Never ask
+  one of these again.
 * `knowledge/application-context.yaml` — modules, capabilities, roles, rules
 
 ## Your output
@@ -30,9 +33,21 @@ Exactly two things:
    because they are questions for the requirement author that nobody else had
    time to ask. Losing them to a closed tab is the cheapest available mistake.
 
-2. **Draft missions** — one JSON file per test in `missions/draft/<TEST_ID>.json`,
-   each validating against the mission schema, which is reproduced in full in
-   the prompt pack. Work from that copy, not from memory of a similar schema.
+2. **Draft test intents** — one JSON file per test in
+   `intents/draft/<TEST_ID>.json`, each validating against the **intent**
+   schema, reproduced in full in the prompt pack. Work from that copy, not from
+   memory of a similar schema.
+
+   **[R3] An intent contains no UI.** No role, no accessible name, no selector,
+   no "click the button in the top right". Not because you should be careful —
+   because the schema has nowhere to put one. You say what the actor is trying
+   to do and what must then be observably true; where to click is the Mapper's
+   job, once a front-end actually exists.
+
+   The prompt pack tells you whether you may also write bound missions. You may
+   only when it carries a capture of the real running page. Without one, every
+   target you wrote would be invented, and an invented target is a fabricated
+   fact that survives into execution looking like a real test.
 
 The prompt pack (`npm run think`) assembles all of this — the schema, a worked
 example, and the analysis template — because you cannot open file paths.
@@ -55,6 +70,22 @@ You do **not** execute anything. You do **not** write Playwright code. You do
    asserting invented behaviour is worse than no mission: it produces a
    confident false defect, and a false defect costs more human QA time than
    reporting nothing at all.
+
+   **[R3] This is now a gate, not advice.** Raise the gap as a numbered question
+   in your analysis, in the ledger format. Then, if a test genuinely depends on
+   the answer, write the intent anyway and declare the dependency:
+
+   ```json
+   "depends_on_clarifications": ["Q-1"]
+   ```
+
+   `npm run approve-intent` refuses while that question is open, so the intent
+   cannot reach execution on a guess. Writing the question and the intent
+   together is the honest order — it shows the reviewer exactly what is riding
+   on the answer, which is what gets questions answered.
+
+   Do not resolve a gap by picking the likelier option and noting it. That
+   produces a test that grades the product against a rule nobody chose.
 
 2. **Every assertion needs a machine-checkable `check`.** A free-text assertion
    means the executing model interprets, executes and grades the same test —

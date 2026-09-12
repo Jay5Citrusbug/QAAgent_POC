@@ -2,6 +2,14 @@
 
 > **Revision 2.** Revision 1 was the original vision. This revision folds in the
 > review findings; every change is marked **[R2]** so the delta stays auditable.
+>
+> **Revision 3.** R1 and R2 both assumed the application already exists when
+> tests are written. In practice the requirement arrives before the build does,
+> and the most valuable QA work — asking the questions nobody had time to ask —
+> happens in that window. R3 restructures the system around that reality:
+> clarifications become an artifact, the test separates from the UI it will one
+> day touch, and a mapping step reconciles the two when the build lands.
+> Changes are marked **[R3]**.
 
 ---
 
@@ -37,33 +45,47 @@ human QA.
 ## 2. Overall Vision
 
 ```text
-Requirement / Documentation
+── Before the build exists ──────────────────────────────────────
+
+Requirement / Story / Documentation
           ↓
 AI QA Thinking
           ↓
 Requirement Analysis
-Gap Identification
-Risk Analysis
-Test Case Generation
-Smoke Selection
+Gap Identification  ──→  Clarification ledger  [R3]
+Risk Analysis                    ↓
+Test Intent Generation      HUMAN ANSWERS      [R3]
+Smoke Selection                  ↓
+          ↓ ←────────────────────┘
+HUMAN REVIEW  (Gate 1)      — business intent, no UI
           ↓
-HUMAN REVIEW  (Gate 1)
+Approved Test Intents                          [R3]
+
+── When the front-end URL arrives ───────────────────────────────
+
+Approved Test Intents  +  Live page capture
+          ↓
+Mapper                                         [R3]
+          ↓
+Draft Missions  +  Reconciliation report       [R3]
+          ↓                    ↳ intents with no UI
+HUMAN REVIEW  (Gate 1.5)       ↳ UI with no intent
           ↓
 Approved Test Missions
           ↓
-AI QA Browser Execution
-          ↓
-Browser Automation
-          ↓
-Application
-          ↓
+AI QA Browser Execution ──→ Explorer pass      [R3]
+          ↓                    ↳ sweeps
+Browser Automation             ↳ state probe
+          ↓                    ↳ build diff
+Application                       ↓
+          ↓                  Observations (never PASS/FAIL)
 Evidence + Replayable Trace             [R2]
           ↓
 Failure Classification (separate pass)  [R2]
           ↓
 HUMAN REVIEW  (Gate 2)
           ↓
-PASS / BUG / BLOCKED
+PASS / BUG / BLOCKED  ──→  Jira issue          [R3]
 ```
 
 The system should eventually reduce the amount of repetitive human QA execution
@@ -141,6 +163,45 @@ product defect, and vice versa — which directly defeats success criterion 9.
 
 ---
 
+### Agent 4 — Mapper **[R3]**
+
+Runs once per build, the moment a front-end URL exists.
+
+* **Input:** approved test intents (§5a) + a `PageReality` capture from `npm run inspect`
+* **Output:** draft missions (intent bound to real controls) + a **reconciliation report**
+
+The reconciliation report is three lists, and the third is the one nobody
+produces today:
+
+| | Meaning |
+|---|---|
+| Intent maps cleanly to UI | Bind it. It is ready to execute. |
+| Intent with no matching UI | The feature is missing, the control was renamed, or the intent was wrong. Three different responses — and a finding *before a single test runs*. |
+| UI with no intent covering it | A coverage hole. The page has a control nobody wrote a case for. |
+
+A QA Lead does exactly this by hand on first receipt of a build, and it takes
+an hour. Automating the reconciliation is worth more than automating the
+clicking.
+
+The Mapper may **not** edit a `test_objective` or invent an outcome. If an
+intent cannot be bound, it says so — it never weakens the intent until it fits
+the page it found.
+
+---
+
+### Agent 5 — Explorer **[R3]**
+
+Bug-hunting that does not depend on anyone having written a test case, because
+most of what a tester notices was never in a test case. Three bounded modes,
+described in §7b.
+
+Its output is **observations, not defects**. A triage pass proposes severity
+and whether each observation is a defect; a human confirms. Without triage the
+team is flooded with noise and stops reading the report — which is the most
+common way a system like this dies quietly.
+
+---
+
 ## 4. Human Gates
 
 ### Gate 1 — Test Design Approval
@@ -159,6 +220,20 @@ no tooling to build, and it yields a real audit trail.
 Agent 2 MUST refuse to execute any mission that is not in `ai-qa-poc/missions/approved/`
 with a populated `approval` block.
 
+### Gate 1.5 — Binding Approval **[R3]**
+
+```text
+Approved intent + live page → Mapper → missions/draft/*.json
+                            → Human QA review
+                            → missions/approved/*.json
+```
+
+Gate 1 approves *what we are testing*. Gate 1.5 approves *where it points*.
+Splitting them is what makes each review cheap: Gate 1 is business language a
+BA can read, Gate 1.5 is mostly "yes, that is the button".
+
+---
+
 ### Gate 2 — Result / Defect Approval
 
 ```text
@@ -172,6 +247,48 @@ AI should never independently decide that a release is safe.
 
 AI should never automatically create a product defect without human review
 during the initial POC.
+
+---
+
+## 4a. Clarifications Are an Artifact, Not a Conversation **[R3]**
+
+§5 hard rule 1 already says the Thinking Agent must report a gap rather than
+fill it in. That was prose, and nothing enforced it. Worse, the answers were
+given in a chat window and died with the tab — so the same question gets asked
+again on the next story.
+
+The ledger lives at `input/feature[-<name>]/clarifications.yaml`:
+
+```yaml
+questions:
+  - id: Q-1
+    question: What happens on the 6th consecutive failed sign-in attempt?
+    why: LG-004 and LG-005 assert lockout behaviour the requirement never states.
+    status: open          # open | answered | assumed
+    answer: null
+```
+
+Three rules make it more than a document:
+
+1. **An intent declares what it depends on.** `depends_on_clarifications: ["Q-1"]`.
+2. **Approval is refused while any dependency is `open`.** That is how "never
+   invent expected behaviour" stops being advice and becomes a gate. The intent
+   may exist as a draft — the agent writes the question and the intent together,
+   which is the honest order — but it cannot pass Gate 1.
+3. **`assumed` is allowed and is stamped.** Sometimes waiting is not an option.
+   An assumption is a legitimate answer, but the intent carries
+   `assumption: true` into the run report, so nobody mistakes a guess for a
+   confirmed requirement when the result comes back.
+
+Answers are hashed the same way requirements are (§16). If an answer changes
+later, every intent derived from it is flagged stale rather than silently
+testing a rule nobody agreed to any more.
+
+**Why this is the highest-value part of the system.** A gap found at story time
+costs a conversation. The same gap found at UAT costs a release. The metric
+that justifies this work upward is not test cases generated — it is **gaps
+raised per story, and how many changed the requirement before development
+finished.**
 
 ---
 
@@ -225,6 +342,68 @@ Every assertion carries both a human sentence and a machine-checkable form:
 `statement` is what the human reviews at Gate 1. `check` is what the executing
 agent must turn into a real Playwright expectation. If the agent cannot express
 a `check` as an expectation, the outcome is `INCONCLUSIVE` — never PASS.
+
+---
+
+## 5a. Intent and Binding — the Two-Phase Test **[R3]**
+
+The R2 mission mixes *what we are testing* with *where to click*:
+`starting_context.page`, `url_hint`, targets carrying `role` and `name`. That
+is fine once the application exists. Before it exists, the Thinking Agent has
+two options and both are bad: invent the UI, or write something too vague to
+run.
+
+It invented. Of seven early missions, two asserted controls that do not exist —
+a cart count badge and an `aria-pressed` attribute the page never uses. Giving
+the agent eyes (`npm run inspect`) fixed that *for applications that are already
+built*. It does nothing for the window this system is most useful in.
+
+So the artifact splits in two.
+
+### Test Intent — written at story time, contains no UI
+
+Authoritative definition: [ai-qa-poc/schemas/test-intent.schema.json](ai-qa-poc/schemas/test-intent.schema.json).
+
+```text
+step:     "submit credentials for an account that is locked"
+outcome:  "the user is told the account is locked, and is not signed in"
+          observable: message_shown
+```
+
+No role. No accessible name. No selector. Not because the agent is being
+careful, but because **the schema cannot express one** — the failure mode is
+designed out rather than warned about.
+
+`observable` is the one concession: it says what *kind* of evidence would
+settle the outcome (`message_shown`, `navigation`, `state_change`,
+`element_absent`, `element_present`, `data_persisted`, `access_denied`,
+`value_equals`). That is enough for the Mapper to know what family of check to
+bind, and still says nothing about the UI.
+
+### Mission — the intent bound to a real page
+
+Unchanged from R2, and still what the Execution Agent consumes. The Mapper
+produces it; a human approves it at Gate 1.5.
+
+### Why the split earns its keep
+
+* **Gate 1 review gets cheap.** The human reviews business intent — readable by
+  the BA who wrote the story. Today they review locator descriptors. VISION §17
+  names review cost as the hidden failure mode of Gate 1; this is the direct
+  attack on it.
+* **Intent survives redesigns.** The login page is rebuilt; the intent is
+  untouched and only the binding is regenerated. Under R2 the whole mission was
+  rewritten.
+* **"We do not know the UI yet" becomes a structural fact** rather than a
+  quality problem to apologise for.
+
+### What it costs, stated honestly
+
+An extra artifact and an extra gate. If the Mapper turns out to bind cleanly
+almost every time, Gate 1.5 becomes a rubber stamp — and a rubber-stamp gate is
+worse than no gate, because it manufactures the appearance of review. The
+binding approval rate is therefore tracked from the first build. If it sits
+near 100%, Gate 1.5 gets merged into Gate 1 rather than left as theatre.
 
 ---
 
@@ -290,6 +469,45 @@ Runs disagree               → INCONCLUSIVE  (never FAIL)
 
 `INCONCLUSIVE` is a first-class, respectable outcome. A false defect costs more
 human QA time than reporting nothing at all.
+
+---
+
+## 7b. Exploration — Finding What No Test Case Describes **[R3]**
+
+A mission answers the one question it was asked. An experienced tester does
+more: while testing the cart they notice the logo is broken, the console is
+throwing, a request 404'd. Nobody wrote a case for any of it.
+
+Ambient observation already exists ([ai-qa-poc/src/observer.ts](ai-qa-poc/src/observer.ts))
+and its governing rule stays absolute: **findings never change a mission's
+PASS/FAIL.** The mission asked one question and deserves one answer; mixing
+them makes both untrustworthy. Agent 5 adds three modes on top.
+
+**1. Sweeps** — one check across every element rather than one element at a
+time, so they keep covering things nobody wrote a mission for next week. Already
+present: every image loads, every control has an accessible name. To add: every
+form field has a label, no duplicate accessible names, no dead links, clean
+console and network on load.
+
+**2. Bounded state probe** — for each input the explorer finds, a small fixed
+matrix: empty, whitespace only, max length + 1, unicode, paste, Enter to submit,
+tab order. It reports **what the application did**. It does not grade it.
+
+> There is no oracle here. The requirement does not say what a 300-character
+> username should do, so the explorer cannot know whether what happened is
+> correct. Pretending otherwise manufactures false defects, and a false defect
+> costs more human QA time than reporting nothing at all.
+
+**3. Build diff** — snapshot `PageReality` per build and compare.
+
+```text
+"The 'Remember me' checkbox is gone."
+"A new 'OTP' field appeared. No intent covers it."
+```
+
+Regression detection with zero test cases, at nearly zero cost. It is also the
+answer to the question this system gets asked most: *what if something quietly
+broke on a page my test cases do not reach?*
 
 ---
 
@@ -467,6 +685,40 @@ worth watching.
 
 ---
 
+## 13b. From Failure to Ticket **[R3]**
+
+```text
+Run artifacts → defect candidate → Gate 2 (human) → Jira issue
+```
+
+**Inbound first, because it is the cheap win.** The story is already in Jira.
+Pulling its description and acceptance criteria into
+`input/feature/<JIRA-KEY>/requirement.md` removes the copy-paste and makes
+`requirement_ref.locator` a real ticket key, which is what §17 criterion 8
+actually wanted.
+
+Outbound, three things decide whether the team trusts it:
+
+1. **Fingerprint and deduplicate.** Hash (`test_id` + assertion id + error
+   class + normalised message). Forty runs against one real bug must produce one
+   ticket with fresh evidence appended — not forty tickets. Skip this and the
+   system gets switched off in week two, correctly.
+
+2. **Reproduction steps come from the replayable trace, not the mission.** The
+   mission says what we meant to do; the trace (§10a) says what actually
+   happened. Only one of those reproduces the bug.
+
+3. **Only `PRODUCT_DEFECT` above a confidence threshold, and only after a human
+   confirms** while trust is being built. §13a already separates the classifier
+   from the executor for exactly this reason: an agent that just failed is the
+   least reliable narrator of why.
+
+Automatic creation without Gate 2 stays forbidden in POC-1 (§4). It is
+revisited when the Agent 3 / human disagreement rate is low enough to justify
+it — measured, not assumed.
+
+---
+
 ## 14. POC-1 Scope
 
 ```text
@@ -588,15 +840,22 @@ Gate 1**, and it is the number most likely to kill this approach quietly.
 ## 18. Long-Term Vision
 
 ```text
-Phase 1  Requirement analysis + AI test design
-Phase 2  AI browser execution
-Phase 3  AI failure analysis
-Phase 4  New build automatically triggers smoke
-Phase 5  Stable AI-validated cases become deterministic Playwright tests
+Phase 1  Requirement analysis + clarification ledger + UI-free test intents  [R3]
+Phase 2  Mapper: bind intents to the real build, reconciliation report        [R3]
+Phase 3  AI browser execution
+Phase 4  AI failure analysis
+Phase 5  Explorer: sweeps, bounded state probe, build diff                    [R3]
+Phase 6  Defect pipeline and Jira, both directions                            [R3]
+Phase 7  New build automatically triggers smoke
+Phase 8  Stable AI-validated cases become deterministic Playwright tests
          (fed by the replayable trace, §10a)
-Phase 6  AI selects regression tests based on change/risk
-Phase 7  AI exploratory testing
-Phase 8  Multi-project AI QA orchestration
+Phase 9  AI selects regression tests based on change/risk
+Phase 10 Multi-project AI QA orchestration
+
+**[R3] Note on ordering.** Phases 1 and 2 do not make generated tests visibly
+better on day one. They make the system *truthful about what it does not know*,
+which is what stops false defects — and a false defect costs more human QA time
+than generating nothing at all. That is the whole bet.
 ```
 
 ```text
