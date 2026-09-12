@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { interpolateTarget } from './interpolate.js';
+import { describeNearMisses, findNearMisses, readControls } from './near-miss.js';
 import type { LocatorCache } from './locator-cache.js';
 import type { Confidence, LocatorCacheEntry, ResolutionStrategy, TargetSpec } from './types.js';
 
@@ -30,9 +31,17 @@ export class TargetNotFoundError extends Error {
     readonly target: TargetSpec,
     readonly attempted: string[],
     readonly snapshot?: string,
+    /**
+     * What the page actually offers instead. "Not found" alone cannot
+     * distinguish a broken feature from a renamed control from a mission
+     * describing something that never existed — and those need different
+     * responses. This is the look a human takes before giving up.
+     */
+    readonly nearMisses?: string,
   ) {
     super(
       `Could not identify "${target.description}". Tried: ${attempted.join(', ') || 'nothing'}. ` +
+        (nearMisses ? `${nearMisses} ` : '') +
         `Reporting rather than guessing.`,
     );
   }
@@ -284,7 +293,18 @@ export async function resolveTarget(
     };
   }
 
-  throw new TargetNotFoundError(target, attempted, await describeCandidates(page, target));
+  // Before giving up, look at what IS there. Costs one page evaluation on a
+  // path that has already failed, and turns a dead end into a lead.
+  const [candidates, allControls] = await Promise.all([
+    findNearMisses(page, target),
+    readControls(page),
+  ]);
+  throw new TargetNotFoundError(
+    target,
+    attempted,
+    await describeCandidates(page, target),
+    describeNearMisses(target, candidates, allControls.length),
+  );
 }
 
 /**

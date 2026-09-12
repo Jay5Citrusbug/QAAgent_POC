@@ -21,6 +21,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { featurePaths, loadThinkingConfig, PATHS, rel } from '../src/config.js';
+import { buildHistory, renderHistory } from '../src/history.js';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -62,6 +63,11 @@ const coverageChecklist = readIfPresent(path.join(PATHS.thinking, 'COVERAGE_CHEC
 const observed = readIfPresent(
   path.join(PATHS.knowledge, 'observed', `${featureName ?? 'default'}.md`),
 );
+
+// Recall from earlier runs, so each analysis builds on the last instead of
+// starting from zero every time.
+const idPrefix = arg('prefix');
+const history = renderHistory(buildHistory(idPrefix));
 
 // A worked example does more for schema-valid output than another page of rules.
 // Prefer a real approved mission; fall back to the draft.
@@ -144,6 +150,10 @@ ${example}
 `
     : ''
 }
+${history ? `---
+
+${history}
+` : ''}
 ---
 
 # Coverage checklist — work through every category
