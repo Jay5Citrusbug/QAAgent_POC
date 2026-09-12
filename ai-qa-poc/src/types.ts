@@ -174,6 +174,15 @@ export interface TestMission {
     max_discovery_attempts?: number;
   };
   rerun_policy?: { replay_on_failure?: boolean; on_divergence?: 'INCONCLUSIVE' };
+  /** [R4] Provenance from phase 2a. Absent on hand-written missions. */
+  binding?: {
+    intent_ref: string;
+    bound_at: string;
+    bound_against?: { build?: string; captured_at?: string; url?: string };
+    confidence: 'high' | 'medium' | 'low';
+    exceptions?: { kind: string; where: string; summary: string; resolved_by?: string; resolution?: string }[];
+    rests_on_assumption?: boolean;
+  };
   approval?: {
     approved_by: string;
     approved_at: string;

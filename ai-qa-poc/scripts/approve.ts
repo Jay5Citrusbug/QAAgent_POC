@@ -54,6 +54,50 @@ if (!valid) {
   process.exit(1);
 }
 
+/**
+ * Gate 1.5 — [R4] the binding review, by exception.
+ *
+ * A mission produced by phase 2a carries the list of things the binder could
+ * not settle: a control it could not find, two it could not choose between, an
+ * expected message nobody ever wrote down. Approving without reading those is
+ * how a mission ends up asserting something nobody chose — and this codebase
+ * has already been bitten twice by tests that passed against the bug they were
+ * written to catch.
+ *
+ * Deliberately NOT a gate on every binding. A clean binding needs no human, and
+ * a gate that rubber-stamps manufactures the appearance of review, which is
+ * worse than no gate at all. So: exceptions block, everything else flows.
+ */
+const exceptions = mission.binding?.exceptions ?? [];
+if (exceptions.length > 0 && !process.argv.includes('--reviewed')) {
+  console.error(`${testId} was bound with ${exceptions.length} unresolved exception(s):`);
+  console.error('');
+  for (const e of exceptions) {
+    console.error(`  ✗ ${e.where} (${e.kind}) — ${e.summary}`);
+  }
+  console.error('');
+  console.error('The reconciliation report lists what the page actually offers for each of');
+  console.error('these, so you are choosing from a list rather than guessing:');
+  console.error('  reports/reconciliation-*.md');
+  console.error('');
+  console.error('Edit the mission to settle them, then approve with --reviewed to confirm');
+  console.error('you read them:');
+  console.error(`  npm run approve -- ${testId} --by "${by}" --reviewed`);
+  process.exit(1);
+}
+
+if (exceptions.length > 0) {
+  console.warn(`${testId}: ${exceptions.length} binding exception(s), accepted as reviewed by ${by}:`);
+  for (const e of exceptions) console.warn(`  ~ ${e.where} (${e.kind}) — ${e.summary}`);
+  console.warn('');
+}
+
+if (mission.binding?.rests_on_assumption) {
+  console.warn('! This mission came from an intent resting on an ASSUMED clarification.');
+  console.warn('  A FAIL here may mean the assumption was wrong rather than the product.');
+  console.warn('');
+}
+
 const warnings = lintMission(mission);
 if (warnings.length > 0) {
   console.warn(`Approving ${testId} with ${warnings.length} warning(s):`);
@@ -77,6 +121,16 @@ if (mission.requirement_ref) {
   }
 } else {
   console.warn('! No requirement_ref — results from this mission will not trace back to a requirement.');
+}
+
+// Stamp who settled each binding exception, so the record shows a person
+// decided rather than a tool defaulting.
+if (mission.binding?.exceptions?.length) {
+  mission.binding.exceptions = mission.binding.exceptions.map((e) => ({
+    ...e,
+    resolved_by: by,
+    resolution: e.resolution ?? 'Reviewed and accepted at Gate 1.5.',
+  }));
 }
 
 mission.approval = {

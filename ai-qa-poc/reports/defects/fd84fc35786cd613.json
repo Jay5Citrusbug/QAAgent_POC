@@ -1,0 +1,82 @@
+{
+  "fingerprint": "fd84fc35786cd613",
+  "title": "[Control labelling sweep] Every visible button and link exposes an accessible name, so it is usable with a screen reader",
+  "source": "mission",
+  "status": "candidate",
+  "severity": "major",
+  "test_id": "EC-007",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature-ecommerce/requirement.md#r-1--global-navigation",
+    "quote": "A dedicated shopping cart icon to display or navigate to user selections.",
+    "content_hash": "sha256:d93f44e1b0b4bfbdddc722d0c87757eb"
+  },
+  "environment": {
+    "url": "https://buggyqa.vercel.app/",
+    "build": "unknown",
+    "browser": "chromium",
+    "role": "Guest",
+    "run_id": "20260912122218-id53",
+    "observed_at": "2026-09-12T12:22:24.655Z"
+  },
+  "summary": "Verify every interactive control on the home page exposes an accessible name. The application did not behave as the requirement describes. A deterministic replay reproduced it identically, so this is not flakiness.",
+  "preconditions": [
+    "STAGE is reachable and the home page loads",
+    "The sweep resolves aria-label, aria-labelledby, <label for>, wrapping labels, title, text content and child image alt before calling a control unlabelled — so a control named by any legitimate mechanism is not flagged."
+  ],
+  "steps_to_reproduce": [
+    "1. navigate → https://buggyqa.vercel.app/",
+    "2. wait_for_state with \"networkidle\""
+  ],
+  "expected": "Every visible button and link exposes an accessible name, so it is usable with a screen reader.",
+  "actual": "all_controls_have_accessible_name: 28 checked, 1 failing\n    - <a> — href=\"/cart\" - icon-only - class=\"relative hover:scale-110 transition-transform\"\n\n1 element(s) failed \"all_controls_have_accessible_name\" (tolerance 0):\n  - <a>: href=\"/cart\" - icon-only - class=\"relative hover:scale-110 transition-transform\"",
+  "evidence": [
+    {
+      "kind": "log",
+      "path": "runs/EC-007/20260912122218-id53-replay/execution.log"
+    },
+    {
+      "kind": "snapshot",
+      "path": "runs/EC-007/20260912122218-id53-replay/failure-snapshot.yaml"
+    },
+    {
+      "kind": "screenshot",
+      "path": "runs/EC-007/20260912122218-id53-replay/failure.png"
+    },
+    {
+      "kind": "trace",
+      "path": "runs/EC-007/20260912122218-id53-replay/trace.zip"
+    },
+    {
+      "kind": "log",
+      "path": "runs/EC-007/20260912122218-id53/execution.log"
+    },
+    {
+      "kind": "snapshot",
+      "path": "runs/EC-007/20260912122218-id53/failure-snapshot.yaml"
+    },
+    {
+      "kind": "screenshot",
+      "path": "runs/EC-007/20260912122218-id53/failure.png"
+    },
+    {
+      "kind": "trace",
+      "path": "runs/EC-007/20260912122218-id53/trace.zip"
+    }
+  ],
+  "classification": {
+    "failure_classification": "PRODUCT_DEFECT",
+    "confidence": "HIGH",
+    "rationale": [
+      "The flow completed and 1 critical assertion(s) did not hold: A1.",
+      "Every action the agent performed succeeded, so the failure is in the outcome, not the operation.",
+      "A deterministic replay failed the same way."
+    ]
+  },
+  "first_seen": "2026-09-12T14:14:27.283Z",
+  "last_seen": "2026-09-12T14:26:19.431Z",
+  "occurrences": 8,
+  "seen_in_builds": [
+    "unknown"
+  ]
+}

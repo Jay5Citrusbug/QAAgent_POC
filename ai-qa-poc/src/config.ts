@@ -30,6 +30,14 @@ export const PATHS = {
   thinkingPrompts: path.join(ROOT, 'thinking', 'prompts'),
   /** Committed analysis — the gaps found are often worth more than the missions. */
   thinkingAnalysis: path.join(ROOT, 'thinking', 'analysis'),
+  /**
+   * [R4] Structured page captures, one per inspection, never overwritten.
+   * knowledge/observed/<feature>.md is for reading; this is the kept series
+   * a build diff compares against. Without it there is nothing to diff.
+   */
+  captures: path.join(ROOT, 'knowledge', 'captures'),
+  /** Paste-ready defect reports, one file per fingerprint. */
+  defects: path.join(ROOT, 'reports', 'defects'),
   runs: path.join(ROOT, 'runs'),
   reports: path.join(ROOT, 'reports'),
   fixtures: path.join(ROOT, 'fixtures'),

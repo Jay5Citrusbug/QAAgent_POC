@@ -1,4 +1,4 @@
-import type { CoverageCategory, TestMission } from './types.js';
+import type { CoverageCategory, TestIntent, TestMission } from './types.js';
 
 /**
  * Coverage against the QA checklist.
@@ -84,29 +84,43 @@ export interface CoverageRow {
   info: CategoryInfo;
   missions: string[];
   manualMissions: string[];
+  /**
+   * [R4] Approved intents in this category that are not yet bound to a mission.
+   *
+   * Deliberately a separate column rather than added to the mission count. An
+   * intent is coverage that has been *designed*; until it is bound and run it
+   * has proven nothing. Merging the two would let a feature with twenty intents
+   * and no missions report full coverage, which is precisely the dishonesty
+   * this report exists to prevent.
+   */
+  plannedIntents: string[];
 }
 
 export interface CoverageReport {
   rows: CoverageRow[];
   uncategorised: string[];
   totalMissions: number;
+  totalIntents: number;
   /** Categories with no mission at all, split by whether that is fixable now. */
   gapsAutomatable: CategoryInfo[];
   gapsManualOnly: CategoryInfo[];
+  /** Categories with nothing executable, but where an intent is already waiting. */
+  gapsPlanned: CategoryInfo[];
 }
 
-export function buildCoverage(missions: TestMission[]): CoverageReport {
-  const rows: CoverageRow[] = CATEGORIES.map((info) => ({ info, missions: [], manualMissions: [] }));
+export function buildCoverage(missions: TestMission[], intents: TestIntent[] = []): CoverageReport {
+  const rows: CoverageRow[] = CATEGORIES.map((info) => ({
+    info,
+    missions: [],
+    manualMissions: [],
+    plannedIntents: [],
+  }));
   const byKey = new Map(rows.map((r) => [r.info.key, r]));
   const uncategorised: string[] = [];
 
   for (const m of missions) {
     const category = m.coverage?.category;
-    if (!category) {
-      uncategorised.push(m.test_id);
-      continue;
-    }
-    const row = byKey.get(category);
+    const row = category ? byKey.get(category) : undefined;
     if (!row) {
       uncategorised.push(m.test_id);
       continue;
@@ -115,14 +129,31 @@ export function buildCoverage(missions: TestMission[]): CoverageReport {
     else row.missions.push(m.test_id);
   }
 
+  // An intent whose mission already exists is not "planned" any more — it is
+  // counted above, and listing it twice would inflate the picture.
+  const bound = new Set(missions.map((m) => m.test_id));
+  for (const i of intents) {
+    if (bound.has(i.test_id)) continue;
+    const row = i.coverage?.category ? byKey.get(i.coverage.category) : undefined;
+    if (!row) {
+      uncategorised.push(i.test_id);
+      continue;
+    }
+    row.plannedIntents.push(i.test_id);
+  }
+
   const empty = rows.filter((r) => r.missions.length === 0 && r.manualMissions.length === 0);
 
   return {
     rows,
     uncategorised,
     totalMissions: missions.length,
-    gapsAutomatable: empty.filter((r) => r.info.capability !== 'manual').map((r) => r.info),
+    totalIntents: intents.length,
+    gapsAutomatable: empty
+      .filter((r) => r.info.capability !== 'manual' && r.plannedIntents.length === 0)
+      .map((r) => r.info),
     gapsManualOnly: empty.filter((r) => r.info.capability === 'manual').map((r) => r.info),
+    gapsPlanned: empty.filter((r) => r.plannedIntents.length > 0).map((r) => r.info),
   };
 }
 
@@ -134,13 +165,20 @@ const MARK: Record<Capability, string> = {
 
 export function renderCoverage(report: CoverageReport): string {
   const lines: string[] = [];
-  lines.push(`Coverage across ${report.totalMissions} mission(s)`);
+  lines.push(
+    `Coverage across ${report.totalMissions} mission(s)` +
+      (report.totalIntents ? ` and ${report.totalIntents} approved intent(s)` : ''),
+  );
   lines.push('');
-  lines.push('  category              executable   missions');
+  lines.push('  category              executable   missions / +intents');
   lines.push('  ' + '-'.repeat(62));
 
   for (const row of report.rows) {
-    const ids = [...row.missions, ...row.manualMissions.map((id) => `${id}*`)];
+    const ids = [
+      ...row.missions,
+      ...row.manualMissions.map((id) => `${id}*`),
+      ...row.plannedIntents.map((id) => `+${id}`),
+    ];
     const cell = ids.length ? ids.join(', ') : '— none —';
     lines.push(
       `  ${row.info.label.padEnd(21)} ${MARK[row.info.capability]}  ${cell}`,
@@ -149,6 +187,9 @@ export function renderCoverage(report: CoverageReport): string {
 
   lines.push('');
   lines.push('  * = mission marked manual: a human runs it, the executor cannot.');
+  if (report.totalIntents) {
+    lines.push('  + = approved intent, not yet bound to a mission: designed, but it has proven nothing.');
+  }
 
   if (report.uncategorised.length) {
     lines.push('');
@@ -164,6 +205,15 @@ export function renderCoverage(report: CoverageReport): string {
     }
   }
 
+  if (report.gapsPlanned.length) {
+    lines.push('');
+    lines.push('DESIGNED BUT NOT RUNNING — an intent covers these, but nothing executable does:');
+    for (const g of report.gapsPlanned) {
+      lines.push(`  - ${g.label}`);
+    }
+    lines.push('  Bind them against the build:  npm run bind -- --feature <feature> --write');
+  }
+
   if (report.gapsManualOnly.length) {
     lines.push('');
     lines.push('GAPS NEEDING A HUMAN — the executor cannot cover these at all:');
@@ -173,7 +223,7 @@ export function renderCoverage(report: CoverageReport): string {
     lines.push('  Schedule these as manual work, or they simply do not happen.');
   }
 
-  if (!report.gapsAutomatable.length && !report.gapsManualOnly.length) {
+  if (!report.gapsAutomatable.length && !report.gapsManualOnly.length && !report.gapsPlanned.length) {
     lines.push('');
     lines.push('Every category has at least one mission.');
   }

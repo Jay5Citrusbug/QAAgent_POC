@@ -19,6 +19,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadAppContext, PATHS, rel } from '../src/config.js';
 import { inspectPage, renderReality, type PageReality } from '../src/inspector.js';
+import { capturePair, saveCapture } from '../src/captures.js';
+import { diffCaptures, renderDiff } from '../src/build-diff.js';
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -98,6 +100,30 @@ fs.writeFileSync(file, renderReality(results), 'utf8');
 
 console.log('');
 console.log(`Observed state written: ${rel(file)}`);
+
+// [R4] Keep the structured capture too. The markdown above is overwritten
+// every run because the prompt pack wants what is true now; the capture is
+// never overwritten, because a build diff needs the page as it was.
+const captureFile = saveCapture(results, featureName, baseUrl);
+console.log(`Capture kept        : ${rel(captureFile)}`);
+
+const { current, previous } = capturePair(featureName);
+if (current && previous) {
+  const diff = diffCaptures(previous, current);
+  const diffFile = path.join(PATHS.reports, `build-diff-${featureName ?? "default"}-${Date.now()}.md`);
+  fs.mkdirSync(PATHS.reports, { recursive: true });
+  fs.writeFileSync(diffFile, renderDiff(diff), "utf8");
+  const notable = diff.changes.filter((c) => c.notable).length;
+  console.log(`Build diff written  : ${rel(diffFile)}`);
+  if (diff.changes.length === 0) {
+    console.log("  nothing structural changed since the last capture.");
+  } else {
+    console.log(`  ${diff.changes.length} change(s) since the last capture, ${notable} worth reading first.`);
+    for (const c of diff.changes.filter((x) => x.notable).slice(0, 5)) console.log(`    - ${c.summary}`);
+  }
+} else {
+  console.log("No earlier capture to diff against — this one becomes the baseline.");
+}
 
 const totalAmbiguous = results.reduce((n, r) => n + r.ambiguous.length, 0);
 const totalBroken = results.reduce((n, r) => n + r.images.filter((i) => !i.loaded).length, 0);

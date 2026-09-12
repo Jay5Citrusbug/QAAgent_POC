@@ -201,9 +201,21 @@ page it found.
 > runtime and "no control matches this intent" arrives one failure at a time,
 > mid-run, after the browser cost has been paid.
 
+Implemented in [ai-qa-poc/src/binder.ts](ai-qa-poc/src/binder.ts), driven by
+`npm run bind`. It is deterministic, and therefore honest about its ceiling: the
+intent contract forbids naming controls, so the binder infers what it can from
+the verb and the accessible names, and turns **everything it cannot settle into
+an exception carrying the candidates actually present on the page**. The human
+picks from a list rather than authoring from scratch.
+
+That is also the seam a model plugs into later — the same seam `resolveTarget`
+leaves in [ai-qa-poc/src/discovery.ts](ai-qa-poc/src/discovery.ts). Until one is
+wired in, the exceptions are the honest output rather than a hidden guess.
+
 **2b — Execute.** Unchanged. The approved mission, against the real application.
 
-**2c — Explore.** Concurrent with 2b, never after it. Detailed in §7b.
+**2c — Explore.** Concurrent with 2b, never after it. Detailed in §7b, and
+driven standalone by `npm run explore`.
 
 ---
 
@@ -558,6 +570,14 @@ reports **what the application did**. It does not grade it.
 
 **3. Build diff** — snapshot `PageReality` per build and compare.
 
+Implemented in [ai-qa-poc/src/build-diff.ts](ai-qa-poc/src/build-diff.ts), over the
+kept captures in `knowledge/captures/` ([ai-qa-poc/src/captures.ts](ai-qa-poc/src/captures.ts)).
+The capture series had to come first: `npm run inspect` overwrote its output
+every run, so until R4 there was literally nothing to diff against. Renames are
+detected rather than reported as an unrelated removal plus an unrelated
+addition — "Sign in became Log in" is one fact a human judges in a second, and
+the same thing split in two reads as a feature deleted.
+
 ```text
 "The 'Remember me' checkbox is gone."
 "A new 'OTP' field appeared. No intent covers it."
@@ -774,6 +794,27 @@ Outbound, three things decide whether the team trusts it:
 Automatic creation without Gate 2 stays forbidden in POC-1 (§4). It is
 revisited when the Agent 3 / human disagreement rate is low enough to justify
 it — measured, not assumed.
+
+### What exists, and what deliberately does not **[R4]**
+
+Built: [ai-qa-poc/schemas/defect-candidate.schema.json](ai-qa-poc/schemas/defect-candidate.schema.json),
+the assembly and fingerprinting in [ai-qa-poc/src/defect.ts](ai-qa-poc/src/defect.ts),
+and `npm run defects` — which produces a report complete enough to paste into a
+ticket and assign: title, severity, environment and build, the requirement it
+violates, preconditions, reproduction steps taken from the replayable trace,
+expected, actual, every evidence file, and the classifier's proposal.
+
+**Not built, deliberately: the API call.** No tracker credentials, no
+auto-filing. The value here was never the HTTP request — it is the ten minutes
+of writing-up per defect that gets skipped when the sprint is tight, which is
+how real bugs end up as a line in a report nobody actions. A human reads the
+report, agrees it is real, and pastes it.
+
+`npm run defects -- --confirm <fingerprint> --by "<name>" --ticket <KEY>` records
+the decision and the tracker key, so the next run links a repeat to the existing
+issue instead of raising another. Those decisions are the one part of
+`reports/` kept in git: a rejected defect is somebody's judgement, and losing it
+means re-raising it forever.
 
 ---
 

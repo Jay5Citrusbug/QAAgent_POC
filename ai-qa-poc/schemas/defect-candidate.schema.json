@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qagents.local/schemas/defect-candidate.schema.json",
+  "title": "Defect Candidate",
+  "description": "[R4] A defect report assembled from run artifacts, complete enough to paste into a tracker and hand to a developer. Called a CANDIDATE because nothing here is a confirmed defect until a human says so at Gate 2 - VISION section 4 forbids automatic defect creation in POC-1, and section 13a is why: an agent that just failed is the least reliable narrator of why it failed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "fingerprint",
+    "title",
+    "source",
+    "status",
+    "severity",
+    "environment",
+    "summary",
+    "steps_to_reproduce",
+    "expected",
+    "actual",
+    "first_seen",
+    "occurrences"
+  ],
+  "properties": {
+    "fingerprint": {
+      "type": "string",
+      "description": "Stable hash of what makes this defect THIS defect - the test, the assertion, the failure kind, and the error message with run-specific noise stripped out. Forty runs against one real bug must produce one report with fresh evidence appended, not forty reports. Skip deduplication and the system gets switched off in week two, correctly."
+    },
+
+    "title": {
+      "type": "string",
+      "description": "One line, written to be read in a backlog: what is broken and where. Not the test id - a developer scanning a sprint board does not know what SM-004 is."
+    },
+
+    "source": {
+      "type": "string",
+      "enum": ["mission", "exploration"],
+      "description": "'mission' means a test case failed. 'exploration' means nobody wrote a test for this - it was noticed while walking the page (VISION section 7b), which is exactly the class of bug a scripted suite never finds."
+    },
+
+    "status": {
+      "type": "string",
+      "enum": ["candidate", "confirmed", "rejected", "duplicate"],
+      "description": "Starts at 'candidate'. Only a human moves it. A rejected candidate is kept, not deleted - a defect the team decided was not a defect is information the next run needs, or it gets re-raised forever."
+    },
+
+    "severity": {
+      "type": "string",
+      "enum": ["blocker", "critical", "major", "minor", "trivial"],
+      "description": "A proposal for the human, derived from priority and blast radius. Never authoritative."
+    },
+
+    "test_id": { "type": "string", "description": "The mission this came from, where there was one. The thread back to the requirement." },
+    "requirement_ref": {
+      "type": "object",
+      "description": "What this defect means the product is failing to do. A defect report that cannot name the requirement it violates is an opinion.",
+      "additionalProperties": true
+    },
+
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string" },
+        "build": { "type": "string" },
+        "browser": { "type": "string" },
+        "role": { "type": "string" },
+        "run_id": { "type": "string" },
+        "observed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+
+    "summary": { "type": "string", "description": "A short paragraph: what happens, and why it matters. Written for a developer who has not read the test." },
+
+    "preconditions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "State that had to hold first. Half of all 'cannot reproduce' comes from a missing precondition, not a wrong step."
+    },
+
+    "steps_to_reproduce": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Taken from the REPLAYABLE TRACE, not from the mission. The mission says what we meant to do; the trace says what actually happened, and only one of those reproduces the bug."
+    },
+
+    "expected": { "type": "string" },
+    "actual": { "type": "string" },
+
+    "evidence": {
+      "type": "array",
+      "description": "Paths to the screenshot, Playwright trace, execution log and accessibility snapshot. A developer should not have to re-run anything to see the failure.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["screenshot", "trace", "log", "snapshot", "other"] },
+          "path": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+
+    "classification": {
+      "type": "object",
+      "description": "The classifier's proposal (Agent 3) and how sure it was. A defect candidate classified AGENT_EXECUTION_FAILURE with high confidence is probably not a product defect at all - which is the distinction success criterion 9 is about.",
+      "additionalProperties": false,
+      "properties": {
+        "failure_classification": { "type": "string" },
+        "confidence": { "type": "string" },
+        "rationale": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "rests_on_assumption": {
+      "type": "boolean",
+      "description": "The test asserted a rule answered by assumption rather than confirmation. This failure may mean the assumption was wrong rather than the product - raise it as a question before raising it as a bug."
+    },
+
+    "first_seen": { "type": "string", "format": "date-time" },
+    "last_seen": { "type": "string", "format": "date-time" },
+    "occurrences": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many runs have produced this same fingerprint. A count of 1 on a re-run is weak evidence; VISION section 7 already degrades disagreeing runs to INCONCLUSIVE rather than FAIL."
+    },
+    "seen_in_builds": { "type": "array", "items": { "type": "string" } },
+
+    "human_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reviewed_by": { "type": "string" },
+        "reviewed_at": { "type": "string", "format": "date-time" },
+        "decision": { "type": "string" },
+        "note": { "type": "string" },
+        "ticket": { "type": "string", "description": "The tracker key, once a human has raised it. Filled in by hand - POC-1 does not talk to Jira." }
+      }
+    }
+  }
+}

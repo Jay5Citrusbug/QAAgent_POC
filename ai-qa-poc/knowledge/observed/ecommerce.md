@@ -2,7 +2,7 @@
 
 Captured from the running application. This is what is **actually there** — use it instead of assuming. If something you were about to assert is not listed below, treat that as evidence it does not exist, and say so as a gap rather than writing a mission against it.
 
-_Captured 2026-09-12T12:57:56.817Z_
+_Captured 2026-09-12T14:16:28.825Z_
 
 ## https://buggyqa.vercel.app/
 
@@ -20,7 +20,7 @@ Each of these names matches more than one element. A target using the name alone
 | link | Cart | 2 | nav, footer |
 | link | Checkout | 2 | nav, footer |
 
-### Controls present
+### Controls present (17 of 17 distinct names)
 
 | role | name | count | region |
 |---|---|---:|---|
@@ -131,7 +131,7 @@ Each of these names matches more than one element. A target using the name alone
 | link | Cart | 2 | nav, footer |
 | link | Checkout | 2 | nav, footer |
 
-### Controls present
+### Controls present (9 of 9 distinct names)
 
 | role | name | count | region |
 |---|---|---:|---|

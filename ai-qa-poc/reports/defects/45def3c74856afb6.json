@@ -1,0 +1,27 @@
+{
+  "fingerprint": "45def3c74856afb6",
+  "title": "[Global Navigation] Control has no accessible name",
+  "source": "exploration",
+  "status": "candidate",
+  "severity": "trivial",
+  "environment": {
+    "url": "https://buggyqa.vercel.app/",
+    "build": "unknown",
+    "browser": "chromium",
+    "run_id": "20260912130109-igaq",
+    "observed_at": "2026-09-12T14:26:19.509Z"
+  },
+  "summary": "Control has no accessible name\n\nNobody wrote a test case for this. It was noticed while walking the page during another test, which is the only reason it is here at all.",
+  "steps_to_reproduce": [
+    "1. Open https://buggyqa.vercel.app/",
+    "2. Observe the behaviour described above."
+  ],
+  "expected": "Not stated by any requirement — this is an observation, and someone who knows the product must decide whether it is a defect.",
+  "actual": "<a href=\"/cart\">",
+  "first_seen": "2026-09-12T14:14:27.267Z",
+  "last_seen": "2026-09-12T14:26:19.509Z",
+  "occurrences": 80,
+  "seen_in_builds": [
+    "unknown"
+  ]
+}

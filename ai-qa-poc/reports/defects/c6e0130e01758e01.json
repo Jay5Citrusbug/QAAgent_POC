@@ -1,0 +1,27 @@
+{
+  "fingerprint": "c6e0130e01758e01",
+  "title": "[Global Navigation] Image failed to load",
+  "source": "exploration",
+  "status": "candidate",
+  "severity": "minor",
+  "environment": {
+    "url": "https://buggyqa.vercel.app/",
+    "build": "unknown",
+    "browser": "chromium",
+    "run_id": "20260912130109-igaq",
+    "observed_at": "2026-09-12T14:26:19.507Z"
+  },
+  "summary": "Image failed to load\n\nNobody wrote a test case for this. It was noticed while walking the page during another test, which is the only reason it is here at all. Seen 3 times in one run.",
+  "steps_to_reproduce": [
+    "1. Open https://buggyqa.vercel.app/",
+    "2. Observe the behaviour described above."
+  ],
+  "expected": "Not stated by any requirement — this is an observation, and someone who knows the product must decide whether it is a defect.",
+  "actual": "https://buggyqa.vercel.app/broken-logo.png",
+  "first_seen": "2026-09-12T14:14:27.265Z",
+  "last_seen": "2026-09-12T14:26:19.507Z",
+  "occurrences": 116,
+  "seen_in_builds": [
+    "unknown"
+  ]
+}

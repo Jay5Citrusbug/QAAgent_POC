@@ -2,7 +2,15 @@ node_modules/
 .auth/
 .env
 runs/
-reports/
+reports/*
 test-results/
 *.log
 thinking/prompts/
+
+# [R4] Reports are regenerable from runs/ - except the human decisions in them.
+# A confirmed or rejected defect is somebody's judgement, not a derived artifact:
+# losing it on a fresh clone means every rejected defect gets raised again, forever.
+# So the decisions are kept and the rendered markdown is not.
+!reports/defects/
+!reports/defects/*.json
+reports/defects/*.md

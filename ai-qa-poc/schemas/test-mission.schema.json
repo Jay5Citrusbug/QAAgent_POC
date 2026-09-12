@@ -253,6 +253,51 @@
       }
     },
 
+    "binding": {
+      "type": "object",
+      "description": "[R4] How this mission came to exist, when it was produced by binding an approved intent (VISION section 3, phase 2a). Absent on hand-written missions. Recorded BEFORE execution so the decision cannot be rewritten in the light of the result - an agent that bound to the wrong control would otherwise narrate the failure in terms of the binding it chose.",
+      "additionalProperties": false,
+      "required": ["intent_ref", "bound_at", "confidence"],
+      "properties": {
+        "intent_ref": { "type": "string", "description": "The test_id of the intent this was bound from. Same id: one thread from requirement to defect." },
+        "bound_at": { "type": "string", "format": "date-time" },
+        "bound_against": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "build": { "type": "string" },
+            "captured_at": { "type": "string" },
+            "url": { "type": "string" }
+          },
+          "description": "Which capture of which build this was bound to. A mission bound against a page that has since changed is testing something that may no longer be there."
+        },
+        "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+        "exceptions": {
+          "type": "array",
+          "description": "Everything the binder could not settle. Gate 1.5 reviews exactly this and nothing else - reviewing every binding would be a rubber stamp, and a rubber-stamp gate manufactures the appearance of review.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "where", "summary"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["no_candidate", "ambiguous", "approximated", "value_unknown", "unsupported_step", "role_unresolved", "data_unprovisioned"]
+              },
+              "where": { "type": "string", "description": "The step or outcome id, e.g. S2 or O1." },
+              "summary": { "type": "string" },
+              "resolved_by": { "type": "string", "description": "Who settled it at Gate 1.5, stamped on approval." },
+              "resolution": { "type": "string", "description": "What they decided." }
+            }
+          }
+        },
+        "rests_on_assumption": {
+          "type": "boolean",
+          "description": "Carried through from the intent: a depended-on clarification was answered by assumption rather than confirmation. A FAIL here may mean the assumption was wrong rather than the product."
+        }
+      }
+    },
+
     "approval": {
       "type": "object",
       "description": "[R2] Gate 1, made machine-checkable. The Execution Agent refuses any mission outside missions/approved/ or with this block absent.",

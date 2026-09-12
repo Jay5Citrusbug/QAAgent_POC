@@ -1,0 +1,119 @@
+{
+  "test_id": "EC-101",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature-ecommerce/requirement.md",
+    "quote": "A shopper can filter the product list by category.",
+    "content_hash": "sha256:d93f44e1b0b4bfbdddc722d0c87757eb"
+  },
+  "feature": "ecommerce",
+  "module": "Catalogue",
+  "capability": "Catalogue.Filter",
+  "priority": "P1",
+  "role": "Guest",
+  "environment": "STAGE",
+  "starting_context": {
+    "page": "/",
+    "url_hint": "/"
+  },
+  "preconditions": [
+    "the catalogue contains products in more than one category"
+  ],
+  "test_objective": "Filtering by Electronics narrows the product list to electronics only.",
+  "coverage": {
+    "category": "functional",
+    "secondary_categories": [
+      "navigation"
+    ],
+    "execution_mode": "automated"
+  },
+  "expected_outcome": "succeeds",
+  "data_policy": {
+    "creates_artifacts": false,
+    "naming_pattern": "AI QA {run_id}",
+    "cleanup": "best_effort"
+  },
+  "actions": [
+    {
+      "action": "navigate",
+      "instruction": "Open https://buggyqa.vercel.app/",
+      "url": "/"
+    },
+    {
+      "action": "click",
+      "instruction": "narrow the catalogue to the Electronics category",
+      "target": {
+        "description": "narrow the catalogue to the Electronics category",
+        "role": "button",
+        "name": "Electronics"
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "id": "A1",
+      "statement": "Only products belonging to Electronics remain listed.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "Only products belonging to Electronics remain listed.",
+          "role": "button",
+          "name": "Electronics"
+        }
+      }
+    },
+    {
+      "id": "A2",
+      "statement": "The Electronics category is shown as the one currently applied.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "The Electronics category is shown as the one currently applied.",
+          "role": "button",
+          "name": "Electronics"
+        }
+      }
+    }
+  ],
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "retain_on_failure",
+    "console": true,
+    "network": true,
+    "snapshot_on_failure": true
+  },
+  "budget": {
+    "max_steps": 10,
+    "timeout_ms": 120000,
+    "max_discovery_attempts": 3
+  },
+  "rerun_policy": {
+    "replay_on_failure": true,
+    "on_divergence": "INCONCLUSIVE"
+  },
+  "binding": {
+    "intent_ref": "EC-101",
+    "bound_at": "2026-09-12T14:19:43.202Z",
+    "bound_against": {
+      "build": "unknown",
+      "captured_at": "2026-09-12T14:16:28.827Z",
+      "url": "https://buggyqa.vercel.app/"
+    },
+    "confidence": "medium",
+    "exceptions": [
+      {
+        "kind": "approximated",
+        "where": "O1",
+        "summary": "\"Only products belonging to Electronics remain listed.\" was bound to a visible check on button \"Electronics\" (in main) — the closest thing available, not a faithful check.",
+        "resolved_by": "jay.r",
+        "resolution": "Reviewed and accepted at Gate 1.5."
+      }
+    ]
+  },
+  "approval": {
+    "approved_by": "jay.r",
+    "approved_at": "2026-09-12T14:19:55.917Z",
+    "edits_made": false,
+    "review_minutes": 3
+  }
+}

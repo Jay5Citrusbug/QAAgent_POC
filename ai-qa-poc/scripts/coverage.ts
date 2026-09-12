@@ -14,7 +14,8 @@ import path from 'node:path';
 import { PATHS } from '../src/config.js';
 import { buildCoverage, renderCoverage } from '../src/coverage.js';
 import { readMissionFile } from '../src/validate.js';
-import type { TestMission } from '../src/types.js';
+import { listIntents, readIntentFile } from '../src/intents.js';
+import type { TestIntent, TestMission } from '../src/types.js';
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -34,12 +35,25 @@ function collect(dir: string): TestMission[] {
 
 const missions = [...collect(PATHS.missionsDraft), ...collect(PATHS.missionsApproved)];
 
-if (missions.length === 0) {
-  console.error(prefix ? `No missions with prefix ${prefix}-.` : 'No missions found.');
+/**
+ * [R4] Approved intents count too — as planned coverage, in their own column.
+ *
+ * Before this, a feature could have ten approved intents and score zero, which
+ * made the gap list say "nothing covers security" when in fact somebody had
+ * designed exactly that and it was waiting on a build. Both errors matter, and
+ * they are different errors: one is nobody thought of it, the other is nobody
+ * has run it yet.
+ */
+const intents: TestIntent[] = listIntents(PATHS.intentsApproved)
+  .map(readIntentFile)
+  .filter((i) => !prefix || i.test_id.toUpperCase().startsWith(`${prefix}-`));
+
+if (missions.length === 0 && intents.length === 0) {
+  console.error(prefix ? `No missions or intents with prefix ${prefix}-.` : 'No missions or intents found.');
   process.exit(1);
 }
 
 console.log('');
 if (prefix) console.log(`Feature prefix: ${prefix}-`);
-console.log(renderCoverage(buildCoverage(missions)));
+console.log(renderCoverage(buildCoverage(missions, intents)));
 console.log('');

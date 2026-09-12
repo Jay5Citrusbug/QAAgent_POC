@@ -1,4 +1,4 @@
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 /**
  * Property sweeps.
@@ -179,6 +179,190 @@ export async function sweepAccessibleNames(scope: Locator): Promise<SweepOutcome
 
     return { offenders, unverified, checked: controls.length };
   });
+}
+
+/**
+ * Every form field is programmatically labelled.
+ *
+ * Distinct from `sweepAccessibleNames`, which covers controls generally. A
+ * placeholder is the common shortcut here and it is not a label: it disappears
+ * the moment the user types, so anyone who looks away loses what the field was
+ * for. It is accepted as a name by the control sweep and rejected here, and
+ * that difference is the point.
+ */
+export async function sweepFieldLabels(scope: Locator): Promise<SweepOutcome> {
+  // Runs in page context — no named inner functions, see the note above.
+  return scope.evaluate((root: Element) => {
+    const fields = Array.from(
+      root.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea'),
+    ) as HTMLElement[];
+    const offenders: { what: string; detail: string }[] = [];
+    const unverified: { what: string; detail: string }[] = [];
+
+    for (const el of fields) {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      if (el.getAttribute('aria-hidden') === 'true') continue;
+
+      let labelled = false;
+
+      const aria = el.getAttribute('aria-label');
+      if (aria && aria.trim()) labelled = true;
+
+      if (!labelled && el.getAttribute('aria-labelledby')) {
+        for (const id of (el.getAttribute('aria-labelledby') || '').split(/\s+/)) {
+          const ref = el.ownerDocument.getElementById(id);
+          if (ref && ref.textContent && ref.textContent.trim()) {
+            labelled = true;
+            break;
+          }
+        }
+      }
+
+      if (!labelled) {
+        const id = el.getAttribute('id');
+        if (id) {
+          const labels = Array.from(el.ownerDocument.querySelectorAll('label'));
+          for (const lb of labels) {
+            if ((lb as HTMLLabelElement).htmlFor === id && lb.textContent && lb.textContent.trim()) {
+              labelled = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!labelled) {
+        const wrapping = el.closest('label');
+        if (wrapping && wrapping.textContent && wrapping.textContent.trim()) labelled = true;
+      }
+
+      if (labelled) continue;
+
+      const tag = el.tagName.toLowerCase();
+      const type = el.getAttribute('type') || tag;
+      const placeholder = el.getAttribute('placeholder');
+      const name = el.getAttribute('name') || el.getAttribute('id') || '(no name)';
+
+      offenders.push({
+        what: '<' + tag + ' type="' + type + '"> ' + name,
+        detail: placeholder
+          ? 'only a placeholder ("' + placeholder + '") — it vanishes on typing, so it is not a label'
+          : 'no label, aria-label, aria-labelledby or wrapping <label>',
+      });
+    }
+
+    return { offenders, unverified, checked: fields.length };
+  });
+}
+
+/**
+ * No two controls share an accessible name.
+ *
+ * This is a testability defect as much as a usability one: a duplicated name
+ * is exactly what makes `discovery.ts` refuse to resolve a target, so every
+ * duplicate introduced today is a binding that stops working tomorrow. Catching
+ * it here means it surfaces as one line in a report rather than as a mystery
+ * BLOCKED result in a run.
+ */
+export async function sweepDuplicateNames(scope: Locator): Promise<SweepOutcome> {
+  return scope.evaluate((root: Element) => {
+    const selector = 'button, a[href], [role="button"], [role="link"], [role="tab"]';
+    const controls = Array.from(root.querySelectorAll(selector)) as HTMLElement[];
+    const seen = new Map<string, number>();
+    const offenders: { what: string; detail: string }[] = [];
+    const unverified: { what: string; detail: string }[] = [];
+
+    for (const el of controls) {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      if (el.getAttribute('aria-hidden') === 'true') continue;
+
+      const aria = el.getAttribute('aria-label');
+      const text = aria && aria.trim() ? aria.trim() : (el.textContent || '').trim();
+      if (!text) continue; // The unlabelled sweep owns this case.
+
+      const role = el.getAttribute('role') || el.tagName.toLowerCase();
+      const key = role + '\u0000' + text.toLowerCase();
+      seen.set(key, (seen.get(key) || 0) + 1);
+    }
+
+    for (const entry of Array.from(seen.entries())) {
+      const key = entry[0];
+      const count = entry[1];
+      if (count < 2) continue;
+      const parts = key.split('\u0000');
+      offenders.push({
+        what: parts[0] + ' "' + parts[1] + '"',
+        detail:
+          count +
+          ' elements share this name, so a target naming it cannot resolve without a "within" scope',
+      });
+    }
+
+    return { offenders, unverified, checked: controls.length };
+  });
+}
+
+/**
+ * Every link points somewhere that answers.
+ *
+ * The one sweep here that touches the network, so it is the one most able to
+ * waste time and annoy a server. Bounded accordingly: same-origin only, unique
+ * URLs only, capped, and a HEAD request rather than a fetch of the body.
+ *
+ * Anything that is not a clear 4xx/5xx is reported as unverified rather than
+ * failed. A timeout is about the network between us and the page; calling it a
+ * broken link would be the kind of false positive that gets a sweep muted.
+ */
+export async function sweepDeadLinks(page: Page, scope: Locator, cap = 40): Promise<SweepOutcome> {
+  const hrefs: string[] = await scope.evaluate((root: Element) => {
+    const links = Array.from(root.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+    const out: string[] = [];
+    for (const a of links) {
+      const raw = a.getAttribute('href') || '';
+      if (!raw || raw.startsWith('#') || /^(mailto|tel|javascript):/i.test(raw)) continue;
+      out.push(a.href); // resolved absolute
+    }
+    return out;
+  });
+
+  const origin = new URL(page.url()).origin;
+  const unique = Array.from(new Set(hrefs)).filter((h) => {
+    try {
+      return new URL(h).origin === origin;
+    } catch {
+      return false;
+    }
+  });
+
+  const offenders: Offender[] = [];
+  const unverified: Offender[] = [];
+  const chosen = unique.slice(0, cap);
+
+  for (const url of chosen) {
+    try {
+      const res = await page.request.head(url, { timeout: 8000, failOnStatusCode: false });
+      const status = res.status();
+      if (status >= 400) {
+        offenders.push({ what: url, detail: `HTTP ${status}` });
+      }
+    } catch (err) {
+      unverified.push({
+        what: url,
+        detail: `no answer (${err instanceof Error ? err.message.split('\n')[0] : String(err)}) — network, not necessarily the link`,
+      });
+    }
+  }
+
+  if (unique.length > chosen.length) {
+    unverified.push({
+      what: `${unique.length - chosen.length} more link(s)`,
+      detail: `beyond the per-page cap of ${cap}`,
+    });
+  }
+
+  return { offenders, unverified, checked: chosen.length };
 }
 
 export function describeSweep(kind: string, outcome: SweepOutcome): string {

@@ -1,0 +1,83 @@
+{
+  "fingerprint": "ba296b1762f2df85",
+  "title": "[Product Filtering & Categorization] The Electronics filter button shows an active/selected state after being clicked",
+  "source": "mission",
+  "status": "candidate",
+  "severity": "major",
+  "test_id": "SM-006",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature/requirement.md",
+    "quote": "A \"Shop by Category\" section with interactive buttons to filter products by: All, Electronics, Fashion, and Books.",
+    "content_hash": "sha256:2f4a3b02b9e13b375cec84f00278283e"
+  },
+  "environment": {
+    "url": "https://buggyqa.vercel.app/",
+    "build": "unknown",
+    "browser": "chromium",
+    "role": "guest",
+    "run_id": "20260912122255-clh9",
+    "observed_at": "2026-09-12T12:23:19.216Z"
+  },
+  "summary": "Verify clicking the Electronics category filter button updates the product grid to show only Electronics items. The application did not behave as the requirement describes. A deterministic replay reproduced it identically, so this is not flakiness.",
+  "preconditions": [
+    "Application is loaded at the home page",
+    "Product grid contains items from at least Electronics and Fashion categories"
+  ],
+  "steps_to_reproduce": [
+    "1. navigate → https://buggyqa.vercel.app/",
+    "2. click on `getByRole('button', { name: 'Electronics' })`"
+  ],
+  "expected": "The Electronics filter button shows an active/selected state after being clicked.\nAll visible product cards in the grid are tagged with the Electronics category after filtering.",
+  "actual": "aria-pressed=\"\"\n\nAttribute aria-pressed was \"\", expected \"true\".",
+  "evidence": [
+    {
+      "kind": "log",
+      "path": "runs/SM-006/20260912122255-clh9-replay/execution.log"
+    },
+    {
+      "kind": "snapshot",
+      "path": "runs/SM-006/20260912122255-clh9-replay/failure-snapshot.yaml"
+    },
+    {
+      "kind": "screenshot",
+      "path": "runs/SM-006/20260912122255-clh9-replay/failure.png"
+    },
+    {
+      "kind": "trace",
+      "path": "runs/SM-006/20260912122255-clh9-replay/trace.zip"
+    },
+    {
+      "kind": "log",
+      "path": "runs/SM-006/20260912122255-clh9/execution.log"
+    },
+    {
+      "kind": "snapshot",
+      "path": "runs/SM-006/20260912122255-clh9/failure-snapshot.yaml"
+    },
+    {
+      "kind": "screenshot",
+      "path": "runs/SM-006/20260912122255-clh9/failure.png"
+    },
+    {
+      "kind": "trace",
+      "path": "runs/SM-006/20260912122255-clh9/trace.zip"
+    }
+  ],
+  "classification": {
+    "failure_classification": "INCONCLUSIVE",
+    "confidence": "MEDIUM",
+    "rationale": [
+      "The flow completed and 1 critical assertion(s) did not hold: A2.",
+      "Every action the agent performed succeeded, so the failure is in the outcome, not the operation.",
+      "A deterministic replay failed the same way.",
+      "Every failing assertion failed because its element could not be found, not because it held the wrong value. That is equally consistent with a stale or invented target descriptor as with a real defect — check the failure snapshot before treating this as a product bug."
+    ]
+  },
+  "first_seen": "2026-09-12T14:14:27.337Z",
+  "last_seen": "2026-09-12T14:26:19.488Z",
+  "occurrences": 8,
+  "seen_in_builds": [
+    "unknown"
+  ]
+}
