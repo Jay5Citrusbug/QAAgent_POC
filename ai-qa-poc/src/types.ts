@@ -8,6 +8,23 @@
  */
 
 export type Priority = 'P0' | 'P1' | 'P2' | 'P3';
+
+/** QA checklist areas — see agent/thinking/COVERAGE_CHECKLIST.md. */
+export type CoverageCategory =
+  | 'requirement_based'
+  | 'functional'
+  | 'negative'
+  | 'input_validation'
+  | 'navigation'
+  | 'edge_case'
+  | 'ui_ux'
+  | 'data_integrity'
+  | 'error_handling'
+  | 'security'
+  | 'api'
+  | 'integration'
+  | 'compatibility'
+  | 'responsive';
 export type Status = 'PASS' | 'FAIL' | 'BLOCKED' | 'INCONCLUSIVE';
 export type Confidence = 'HIGH' | 'MEDIUM' | 'LOW';
 
@@ -127,6 +144,12 @@ export interface TestMission {
   starting_context: { page: string; location?: string; url_hint?: string };
   preconditions: string[];
   test_objective: string;
+  coverage?: {
+    category: CoverageCategory;
+    secondary_categories?: string[];
+    execution_mode?: 'automated' | 'manual' | 'assisted';
+    manual_reason?: string;
+  };
   expected_outcome: 'succeeds' | 'blocked';
   test_data?: { name: string; path: string; note?: string }[];
   data_policy: {

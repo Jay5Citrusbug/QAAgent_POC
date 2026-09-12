@@ -74,5 +74,9 @@
     "approved_at": "2026-09-12T11:36:19.979Z",
     "edits_made": false,
     "review_minutes": 2
+  },
+  "coverage": {
+    "category": "ui_ux",
+    "execution_mode": "automated"
   }
 }

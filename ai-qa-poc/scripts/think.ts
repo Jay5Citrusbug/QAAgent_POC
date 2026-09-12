@@ -58,6 +58,7 @@ const documentation = readIfPresent(feature.documentationFile);
 const existingTests = readIfPresent(feature.existingTestsFile);
 const schema = readIfPresent(path.join(PATHS.schemas, 'test-mission.schema.json'));
 const analysisTemplate = readIfPresent(path.join(PATHS.thinking, 'ANALYSIS_TEMPLATE.md'));
+const coverageChecklist = readIfPresent(path.join(PATHS.thinking, 'COVERAGE_CHECKLIST.md'));
 
 // A worked example does more for schema-valid output than another page of rules.
 // Prefer a real approved mission; fall back to the draft.
@@ -123,6 +124,12 @@ ${example}
 }
 ---
 
+# Coverage checklist — work through every category
+
+${coverageChecklist ?? '(checklist missing)'}
+
+---
+
 # Analysis format
 
 Produce the analysis in exactly this structure so it can be committed verbatim
@@ -150,6 +157,7 @@ Rules that decide whether your output is usable:
 * Anything that creates data needs \`{run_id}\` in its \`naming_pattern\`.
 * Fill \`requirement_ref\` with the file path and the sentence the mission comes from.
 * Set a \`budget\`.
+* Tag every mission with \`coverage.category\`, and mark anything the browser agent cannot run as \`execution_mode: "manual"\` with a reason.
 
 Then stop. A human decides what gets approved — you are not the gate.
 `;

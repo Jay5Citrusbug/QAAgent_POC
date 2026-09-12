@@ -99,6 +99,39 @@ You do **not** execute anything. You do **not** write Playwright code. You do
 9. **Keep missions bounded to their module.** Do not send the executor
    wandering into unrelated areas.
 
+## Coverage — consider every category, and say what you ruled out
+
+`agent/thinking/COVERAGE_CHECKLIST.md` (reproduced in the prompt pack) lists the
+QA areas a feature is measured against. Work through **all** of them.
+
+Two rules make this useful rather than box-ticking:
+
+1. **Tag every mission** with `coverage.category` — the report counts primary
+   categories only, so a mission cannot claim breadth it does not have.
+
+2. **Name what you ruled out, and why.** A mission set that never mentions
+   security is indistinguishable from one where security was considered and
+   found not to apply. Section 4 of the analysis is where that judgement goes.
+   Silence is the failure mode; "not applicable because this feature has no
+   authentication" is a finding.
+
+Some categories cannot be executed by the browser agent at all — API,
+integration, cross-browser, responsive — and parts of others (inducing a server
+failure, reading the database, judging whether something *looks* right). Still
+propose those missions where they matter, but set
+`coverage.execution_mode: "manual"` with a `manual_reason`. A manual mission is
+honest work a human schedules; a manual mission mislabelled automated is a hole
+in the release decision that nobody can see.
+
+**Do not write a `ui_ux` mission that claims to check appearance.** DOM
+assertions cannot see a white icon on a white background — every fact they read
+is correct and the control is invisible. Check structure and content; leave
+looks to a human.
+
+Where a category is really a *property* rather than a behaviour, prefer one
+sweep over many per-element missions — `all_images_loaded` keeps covering
+images added next week that nobody wrote a mission for.
+
 ## Review cost is your real constraint
 
 You are not scored on the number of test cases you produce. You are scored on

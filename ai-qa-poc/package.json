@@ -16,7 +16,8 @@
     "run-headless": "tsx scripts/run.ts --headless",
     "report": "tsx scripts/report.ts",
     "browsers": "playwright install chromium",
-    "web": "npm --prefix web run dev"
+    "web": "npm --prefix web run dev",
+    "coverage": "tsx scripts/coverage.ts"
   },
   "dependencies": {
     "@playwright/test": "^1.49.0",

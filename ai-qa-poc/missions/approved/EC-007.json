@@ -22,7 +22,7 @@
   },
   "preconditions": [
     "STAGE is reachable and the home page loads",
-    "The sweep resolves aria-label, aria-labelledby, <label for>, wrapping labels, title, text content and child image alt before calling a control unlabelled — so a control named by any legitimate mechanism is not flagged."
+    "The sweep resolves aria-label, aria-labelledby, <label for>, wrapping labels, title, text content and child image alt before calling a control unlabelled \u2014 so a control named by any legitimate mechanism is not flagged."
   ],
   "test_objective": "Verify every interactive control on the home page exposes an accessible name.",
   "expected_outcome": "succeeds",
@@ -74,5 +74,9 @@
     "approved_at": "2026-09-12T11:36:22.612Z",
     "edits_made": false,
     "review_minutes": 2
+  },
+  "coverage": {
+    "category": "security",
+    "execution_mode": "automated"
   }
 }

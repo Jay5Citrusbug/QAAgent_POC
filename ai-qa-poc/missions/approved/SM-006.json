@@ -92,5 +92,9 @@
     "approved_at": "2026-09-12T10:53:57.428Z",
     "edits_made": false,
     "review_minutes": 5
+  },
+  "coverage": {
+    "category": "functional",
+    "execution_mode": "automated"
   }
 }

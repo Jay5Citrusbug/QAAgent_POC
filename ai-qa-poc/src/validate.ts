@@ -192,6 +192,32 @@ export function lintMission(m: TestMission): string[] {
     );
   }
 
+  if (!m.coverage?.category) {
+    warnings.push(
+      'No coverage.category: this mission counts toward nothing in the coverage report, which makes the gap list dishonest.',
+    );
+  }
+
+  // A ui_ux mission that promises a visual judgement cannot deliver one.
+  if (m.coverage?.category === 'ui_ux' && m.coverage.execution_mode !== 'manual') {
+    const looksy = m.assertions.filter((a) =>
+      /align|spacing|overlap|colou?r|contrast|font|looks|appearance|layout|centred|centered/i.test(a.statement),
+    );
+    if (looksy.length) {
+      warnings.push(
+        `Assertion${looksy.length > 1 ? 's' : ''} ${looksy.map((a) => a.id).join(', ')}: ` +
+          'promises a visual judgement that DOM assertions cannot make (a white icon on a white background passes every check there is). ' +
+          'Check structure/content instead, or set coverage.execution_mode to "manual".',
+      );
+    }
+  }
+
+  if (m.coverage?.execution_mode === 'manual' && !m.coverage.manual_reason) {
+    warnings.push(
+      'execution_mode is "manual" but no manual_reason is given — say which capability is missing, or it will not get scheduled.',
+    );
+  }
+
   if (/\band\b/i.test(m.test_objective)) {
     warnings.push('test_objective contains "and" — this may really be two missions.');
   }

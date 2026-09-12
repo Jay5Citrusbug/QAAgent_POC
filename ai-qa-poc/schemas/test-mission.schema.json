@@ -80,6 +80,48 @@
 
     "test_objective": { "type": "string", "description": "One sentence. The Execution Agent may not alter it." },
 
+    "coverage": {
+      "type": "object",
+      "description": "Which QA checklist area this mission covers. Drives the coverage report, which shows a human what a feature's mission set does NOT touch - the categories nobody considered are where bugs escape. See agent/thinking/COVERAGE_CHECKLIST.md.",
+      "additionalProperties": false,
+      "required": ["category"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": [
+            "requirement_based",
+            "functional",
+            "negative",
+            "input_validation",
+            "navigation",
+            "edge_case",
+            "ui_ux",
+            "data_integrity",
+            "error_handling",
+            "security",
+            "api",
+            "integration",
+            "compatibility",
+            "responsive"
+          ]
+        },
+        "secondary_categories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Other areas this mission incidentally covers. The report counts the primary category only, so a mission cannot claim broad coverage it does not really provide."
+        },
+        "execution_mode": {
+          "type": "string",
+          "enum": ["automated", "manual", "assisted"],
+          "description": "'manual' means a human runs this - the executor cannot (no API client, no database, no cross-browser, no visual comparison). A manual mission is still worth writing; counting it as automated coverage would hide real risk."
+        },
+        "manual_reason": {
+          "type": "string",
+          "description": "Required in spirit whenever execution_mode is manual: what capability is missing, so it is scheduled rather than forgotten."
+        }
+      }
+    },
+
     "expected_outcome": {
       "type": "string",
       "enum": ["succeeds", "blocked"],

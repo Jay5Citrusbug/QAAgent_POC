@@ -91,5 +91,9 @@
   "rerun_policy": {
     "replay_on_failure": true,
     "on_divergence": "INCONCLUSIVE"
+  },
+  "coverage": {
+    "category": "ui_ux",
+    "execution_mode": "automated"
   }
 }

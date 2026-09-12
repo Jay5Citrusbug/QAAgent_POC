@@ -5,39 +5,46 @@
     "locator": "input/feature-ecommerce/requirement.md#r-5--global-footer",
     "quote": "Contact information including an email address and a support phone number. Copyright information and a system disclaimer."
   },
-
   "feature": "Global Footer",
   "module": "Footer",
   "capability": "Footer.ContactInfo",
   "priority": "P0",
   "role": "Guest",
   "environment": "STAGE",
-
-  "auth": { "strategy": "anonymous" },
-
-  "starting_context": { "page": "home", "location": "footer", "url_hint": "/" },
-
+  "auth": {
+    "strategy": "anonymous"
+  },
+  "starting_context": {
+    "page": "home",
+    "location": "footer",
+    "url_hint": "/"
+  },
   "preconditions": [
     "STAGE is reachable and the home page loads",
-    "The footer's copyright line currently renders a mangled character where a © symbol is presumably intended (see thinking/analysis/ecommerce-2026-09-12.md, Additional findings). This mission checks the surrounding text only, not the symbol itself, to avoid depending on an encoding artifact that may or may not be intentional."
+    "The footer's copyright line currently renders a mangled character where a \u00a9 symbol is presumably intended (see thinking/analysis/ecommerce-2026-09-12.md, Additional findings). This mission checks the surrounding text only, not the symbol itself, to avoid depending on an encoding artifact that may or may not be intentional."
   ],
-
   "test_objective": "Verify the footer displays required contact information.",
   "expected_outcome": "succeeds",
-
-  "data_policy": { "creates_artifacts": false },
-
+  "data_policy": {
+    "creates_artifacts": false
+  },
   "actions": [
-    { "action": "navigate", "instruction": "Open the home page.", "url": "/" }
+    {
+      "action": "navigate",
+      "instruction": "Open the home page.",
+      "url": "/"
+    }
   ],
-
   "assertions": [
     {
       "id": "A1",
       "statement": "The support email address is visible in the footer.",
       "check": {
         "type": "text_contains",
-        "target": { "description": "Footer contact block", "role": "contentinfo" },
+        "target": {
+          "description": "Footer contact block",
+          "role": "contentinfo"
+        },
         "value": "qa.citrusbug@gmail.com"
       },
       "critical": true
@@ -47,23 +54,28 @@
       "statement": "The support phone number is visible in the footer.",
       "check": {
         "type": "text_contains",
-        "target": { "description": "Footer contact block", "role": "contentinfo" },
+        "target": {
+          "description": "Footer contact block",
+          "role": "contentinfo"
+        },
         "value": "+1 (555) 123-4567"
       },
       "critical": true
     },
     {
       "id": "A3",
-      "statement": "A rights-reserved disclaimer is present in the footer (checked by substring, not the exact copyright symbol — see precondition note).",
+      "statement": "A rights-reserved disclaimer is present in the footer (checked by substring, not the exact copyright symbol \u2014 see precondition note).",
       "check": {
         "type": "text_contains",
-        "target": { "description": "Footer copyright/disclaimer line", "role": "contentinfo" },
+        "target": {
+          "description": "Footer copyright/disclaimer line",
+          "role": "contentinfo"
+        },
         "value": "rights reserved"
       },
       "critical": false
     }
   ],
-
   "evidence_policy": {
     "screenshot": "on_failure",
     "trace": "retain_on_failure",
@@ -71,8 +83,18 @@
     "network": false,
     "snapshot_on_failure": true
   },
-
-  "budget": { "max_steps": 6, "timeout_ms": 45000, "action_timeout_ms": 15000, "max_discovery_attempts": 3 },
-
-  "rerun_policy": { "replay_on_failure": true, "on_divergence": "INCONCLUSIVE" }
+  "budget": {
+    "max_steps": 6,
+    "timeout_ms": 45000,
+    "action_timeout_ms": 15000,
+    "max_discovery_attempts": 3
+  },
+  "rerun_policy": {
+    "replay_on_failure": true,
+    "on_divergence": "INCONCLUSIVE"
+  },
+  "coverage": {
+    "category": "ui_ux",
+    "execution_mode": "automated"
+  }
 }

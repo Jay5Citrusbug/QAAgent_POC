@@ -5,51 +5,69 @@
     "locator": "input/feature-ecommerce/requirement.md#r-3--product-filtering--categorization",
     "quote": "A \"Shop by Category\" section with interactive buttons to filter products by: All, Electronics, Fashion, and Books."
   },
-
   "feature": "Product Filtering",
   "module": "Categories",
   "capability": "Categories.Filter",
   "priority": "P0",
   "role": "Guest",
   "environment": "STAGE",
-
-  "auth": { "strategy": "anonymous" },
-
-  "starting_context": { "page": "home", "location": "Shop by Category section", "url_hint": "/" },
-
+  "auth": {
+    "strategy": "anonymous"
+  },
+  "starting_context": {
+    "page": "home",
+    "location": "Shop by Category section",
+    "url_hint": "/"
+  },
   "preconditions": [
     "STAGE is reachable and the home page loads with the full product catalog",
-    "The catalog currently has exactly 2 Electronics products (Wireless Headphones, Bluetooth Speaker) — this assertion is pinned to that fact and needs updating if the catalog changes (see thinking/analysis/ecommerce-2026-09-12.md, Regression impact)"
+    "The catalog currently has exactly 2 Electronics products (Wireless Headphones, Bluetooth Speaker) \u2014 this assertion is pinned to that fact and needs updating if the catalog changes (see thinking/analysis/ecommerce-2026-09-12.md, Regression impact)"
   ],
-
   "test_objective": "Verify that selecting the Electronics category filter narrows the product grid to only Electronics products.",
   "expected_outcome": "succeeds",
-
-  "data_policy": { "creates_artifacts": false },
-
+  "data_policy": {
+    "creates_artifacts": false
+  },
   "actions": [
-    { "action": "navigate", "instruction": "Open the home page.", "url": "/" },
+    {
+      "action": "navigate",
+      "instruction": "Open the home page.",
+      "url": "/"
+    },
     {
       "action": "click",
       "instruction": "Select the Electronics category filter.",
-      "target": { "description": "Electronics filter button", "capability_key": "categories.electronics", "role": "button", "name": "Electronics", "exact": true }
+      "target": {
+        "description": "Electronics filter button",
+        "capability_key": "categories.electronics",
+        "role": "button",
+        "name": "Electronics",
+        "exact": true
+      }
     },
-    { "action": "wait_for_state", "instruction": "Wait for the grid to re-render.", "state": "networkidle" }
+    {
+      "action": "wait_for_state",
+      "instruction": "Wait for the grid to re-render.",
+      "state": "networkidle"
+    }
   ],
-
   "assertions": [
     {
       "id": "A1",
       "statement": "Exactly 2 products are shown after filtering to Electronics (matching the current catalog's Electronics count).",
       "check": {
         "type": "count",
-        "target": { "description": "Add to Cart buttons across the visible product grid", "role": "button", "name": "Add to Cart", "expect_multiple": true },
+        "target": {
+          "description": "Add to Cart buttons across the visible product grid",
+          "role": "button",
+          "name": "Add to Cart",
+          "expect_multiple": true
+        },
         "value": 2
       },
       "critical": true
     }
   ],
-
   "evidence_policy": {
     "screenshot": "on_failure",
     "trace": "retain_on_failure",
@@ -57,8 +75,18 @@
     "network": false,
     "snapshot_on_failure": true
   },
-
-  "budget": { "max_steps": 8, "timeout_ms": 60000, "action_timeout_ms": 15000, "max_discovery_attempts": 3 },
-
-  "rerun_policy": { "replay_on_failure": true, "on_divergence": "INCONCLUSIVE" }
+  "budget": {
+    "max_steps": 8,
+    "timeout_ms": 60000,
+    "action_timeout_ms": 15000,
+    "max_discovery_attempts": 3
+  },
+  "rerun_policy": {
+    "replay_on_failure": true,
+    "on_divergence": "INCONCLUSIVE"
+  },
+  "coverage": {
+    "category": "functional",
+    "execution_mode": "automated"
+  }
 }
