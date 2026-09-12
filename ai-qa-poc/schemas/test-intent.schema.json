@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://qagents.local/schemas/test-intent.schema.json",
   "title": "Test Intent",
-  "description": "[R3] A test written at story time, before the application exists. It says WHAT is being tested and WHAT must be observably true. It says nothing about where to click, because it cannot yet know. The Mapper (Agent 4) binds an approved intent to a real page to produce a Test Mission. See VISION section 5a.",
+  "description": "[R3] A test written at story time, before the application exists. It says WHAT is being tested and WHAT must be observably true. It says nothing about where to click, because it cannot yet know. The binding phase of the Execution Agent (Agent 2a) binds an approved intent to a real page to produce a Test Mission, once per build and before any mission runs. See VISION sections 5a and 3.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -22,12 +22,12 @@
     "test_id": {
       "type": "string",
       "pattern": "^[A-Z]{2,4}-[0-9]{3}$",
-      "description": "Stable identifier, carried unchanged onto the mission the Mapper produces and onto every result. One id, one thread, requirement to defect."
+      "description": "Stable identifier, carried unchanged onto the mission the binding phase produces and onto every result. One id, one thread, requirement to defect."
     },
 
     "requirement_ref": {
       "type": "object",
-      "description": "Traceability to the source requirement. Same shape as the mission's, so the Mapper copies it straight through.",
+      "description": "Traceability to the source requirement. Same shape as the mission's, so the binding phase copies it straight through.",
       "additionalProperties": false,
       "required": ["source", "locator"],
       "properties": {
@@ -47,7 +47,7 @@
     "feature": { "type": "string" },
     "module": {
       "type": "string",
-      "description": "Optional at intent time. The module may not exist in knowledge/application-context.yaml yet, because it may not be built yet. The Mapper fills it in."
+      "description": "Optional at intent time. The module may not exist in knowledge/application-context.yaml yet, because it may not be built yet. The binding phase fills it in."
     },
     "capability": { "type": "string", "description": "Dotted capability path, e.g. Auth.SignIn. A statement of product intent, not of UI." },
     "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
@@ -59,7 +59,7 @@
 
     "test_objective": {
       "type": "string",
-      "description": "One sentence. Neither the Mapper nor the Execution Agent may alter it."
+      "description": "One sentence. Neither the binding phase nor execution may alter it."
     },
 
     "expected_outcome": {
@@ -126,7 +126,7 @@
         "execution_mode": {
           "type": "string",
           "enum": ["automated", "manual", "assisted"],
-          "description": "Best current guess. The Mapper may downgrade it to manual once it sees the real page; it may never upgrade it."
+          "description": "Best current guess. The binding phase may downgrade it to manual once it sees the real page; it may never upgrade it."
         },
         "manual_reason": { "type": "string" }
       }
@@ -144,10 +144,10 @@
           "id": { "type": "string", "pattern": "^S[0-9]+$" },
           "actor_intent": {
             "type": "string",
-            "description": "One thing the actor does: 'submit credentials for an account that is locked'. If you cannot write it without naming a button, it is a binding detail and belongs to the Mapper."
+            "description": "One thing the actor does: 'submit credentials for an account that is locked'. If you cannot write it without naming a button, it is a binding detail and belongs to the binding phase."
           },
           "data_ref": { "type": "string", "description": "Name from test_data." },
-          "note": { "type": "string", "description": "Anything the Mapper or a human reviewer needs to know about this step." }
+          "note": { "type": "string", "description": "Anything the binding phase or a human reviewer needs to know about this step." }
         }
       }
     },
@@ -155,7 +155,7 @@
     "outcomes": {
       "type": "array",
       "minItems": 1,
-      "description": "[R3] What must be observably true afterwards. The Mapper turns each of these into a mission assertion with a machine-checkable check; until then it stays a claim about the product, not about the DOM.",
+      "description": "[R3] What must be observably true afterwards. The binding phase turns each of these into a mission assertion with a machine-checkable check; until then it stays a claim about the product, not about the DOM.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -178,7 +178,7 @@
               "data_persisted",
               "access_denied"
             ],
-            "description": "What KIND of evidence would settle this. The one concession to the executing side: enough for the Mapper to know which family of check to bind, while still saying nothing about the UI."
+            "description": "What KIND of evidence would settle this. The one concession to the executing side: enough for the binding phase to know which family of check to bind, while still saying nothing about the UI."
           },
           "critical": {
             "type": "boolean",
@@ -202,7 +202,7 @@
 
     "approval": {
       "type": "object",
-      "description": "Gate 1, made machine-checkable. The Mapper refuses any intent outside intents/approved/ or with this block absent.",
+      "description": "Gate 1, made machine-checkable. The binding phase refuses any intent outside intents/approved/ or with this block absent.",
       "additionalProperties": false,
       "required": ["approved_by", "approved_at"],
       "properties": {

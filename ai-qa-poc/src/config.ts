@@ -19,7 +19,8 @@ export const PATHS = {
   /**
    * [R3] Test intents — written before the application exists, so they live
    * beside the missions rather than inside them. Gate 1 moves draft →
-   * approved here; the Mapper reads approved/ and writes missions/draft/.
+   * approved here; the binding phase (Agent 2a) reads approved/ and writes
+   * missions/draft/.
    */
   intentsDraft: path.join(ROOT, 'intents', 'draft'),
   intentsApproved: path.join(ROOT, 'intents', 'approved'),

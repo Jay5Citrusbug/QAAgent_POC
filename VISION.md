@@ -10,6 +10,13 @@
 > clarifications become an artifact, the test separates from the UI it will one
 > day touch, and a mapping step reconciles the two when the build lands.
 > Changes are marked **[R3]**.
+>
+> **Revision 4.** R3 promoted mapping and exploration to agents of their own.
+> That was an organisation chart, not an architecture: both use the same
+> browser and the same element resolution the Execution Agent already has, and
+> splitting them implied a separation that does not exist. R4 folds them back
+> into Agent 2 as phases, and fixes what R3 got wrong about *when* each one
+> runs. Changes are marked **[R4]**.
 
 ---
 
@@ -65,20 +72,22 @@ Approved Test Intents                          [R3]
 
 Approved Test Intents  +  Live page capture
           ↓
-Mapper                                         [R3]
+AGENT 2, phase 2a — Bind                       [R4]
           ↓
-Draft Missions  +  Reconciliation report       [R3]
-          ↓                    ↳ intents with no UI
-HUMAN REVIEW  (Gate 1.5)       ↳ UI with no intent
+Draft Missions  +  Reconciliation report       [R4]
+          ↓                    ↳ intents with no control
+HUMAN REVIEW  (Gate 1.5)       ↳ controls with no intent
+  exceptions only              ↳ ambiguous / weak bindings
           ↓
 Approved Test Missions
           ↓
-AI QA Browser Execution ──→ Explorer pass      [R3]
-          ↓                    ↳ sweeps
-Browser Automation             ↳ state probe
-          ↓                    ↳ build diff
-Application                       ↓
-          ↓                  Observations (never PASS/FAIL)
+AGENT 2, phase 2b ═══╦═══ 2c Explore, CONCURRENT       [R4]
+  Execute            ║      ↳ ambient    ┐ share the
+          ↓          ║      ↳ sweeps     ┘ mission session
+Browser Automation   ║      ↳ build diff ┐ own context
+          ↓          ║      ↳ state probe┘ (mutates the page)
+Application          ║              ↓
+          ↓          ╚═══► Observations (never PASS/FAIL)
 Evidence + Replayable Trace             [R2]
           ↓
 Failure Classification (separate pass)  [R2]
@@ -93,7 +102,7 @@ while preserving human ownership of quality decisions.
 
 ---
 
-## 3. Two Logical Agents
+## 3. Three Logical Agents **[R4 — was five in R3]**
 
 ### Agent 1 — QA Thinking Agent
 
@@ -148,6 +157,54 @@ what it observed. Classification is a separate pass — see §13a. **[R2]**
 Agent 2 should execute the approved test mission, not independently decide what
 the product should do.
 
+#### Agent 2 runs in three phases **[R4]**
+
+R3 called the first two of these Agent 4 and Agent 5. They are not separate
+agents. Binding an intent to a control and finding a control during execution
+are the *same operation* against the same live accessibility tree —
+[ai-qa-poc/src/discovery.ts](ai-qa-poc/src/discovery.ts) already does it — and a
+second resolver would be duplication with two sets of bugs.
+
+```text
+2a  Bind      once per build, BEFORE any mission runs
+2b  Execute   per mission
+2c  Explore   concurrently with 2b
+```
+
+**2a — Bind.** Approved intents (§5a) plus a `PageReality` capture in, draft
+missions plus a **reconciliation report** out.
+
+| | Meaning |
+|---|---|
+| Intent binds cleanly to a control | Ready to execute. |
+| Intent with no matching control | The feature is missing, the control was renamed, or the intent was wrong. Three different responses — and a finding *before a single test runs*. |
+| Control with no intent covering it | A coverage hole. The page has something nobody wrote a case for. |
+
+A QA Lead does exactly this by hand on first receipt of a build, and it takes an
+hour. Automating the reconciliation is worth more than automating the clicking.
+
+The binder may **not** edit a `test_objective` or invent an outcome. If an
+intent cannot be bound it says so; it never weakens the intent until it fits the
+page it found.
+
+> **Why 2a is a phase and not just part of the loop [R4].** The separation that
+> matters is temporal, not organisational.
+>
+> Bind inside the execution loop and the same agent decides what "submit
+> credentials" means in UI terms *and* grades whether the result was correct —
+> at the same moment. That is the §13a problem one layer down: an agent that
+> bound to the wrong control will narrate the failure in terms of the binding it
+> chose. Writing the bindings down **before** execution starts puts the decision
+> on record ahead of the result, so it cannot be retconned.
+>
+> It is also the only way the reconciliation report exists at all. Bind at
+> runtime and "no control matches this intent" arrives one failure at a time,
+> mid-run, after the browser cost has been paid.
+
+**2b — Execute.** Unchanged. The approved mission, against the real application.
+
+**2c — Explore.** Concurrent with 2b, never after it. Detailed in §7b.
+
 ---
 
 ### Agent 3 — Failure Classifier **[R2]**
@@ -160,45 +217,6 @@ A cheap, separate reasoning pass — deliberately not the executing agent.
 Rationale: an agent that just failed is the least reliable narrator of why it
 failed. Self-classification lets `AGENT_EXECUTION_FAILURE` quietly mask a real
 product defect, and vice versa — which directly defeats success criterion 9.
-
----
-
-### Agent 4 — Mapper **[R3]**
-
-Runs once per build, the moment a front-end URL exists.
-
-* **Input:** approved test intents (§5a) + a `PageReality` capture from `npm run inspect`
-* **Output:** draft missions (intent bound to real controls) + a **reconciliation report**
-
-The reconciliation report is three lists, and the third is the one nobody
-produces today:
-
-| | Meaning |
-|---|---|
-| Intent maps cleanly to UI | Bind it. It is ready to execute. |
-| Intent with no matching UI | The feature is missing, the control was renamed, or the intent was wrong. Three different responses — and a finding *before a single test runs*. |
-| UI with no intent covering it | A coverage hole. The page has a control nobody wrote a case for. |
-
-A QA Lead does exactly this by hand on first receipt of a build, and it takes
-an hour. Automating the reconciliation is worth more than automating the
-clicking.
-
-The Mapper may **not** edit a `test_objective` or invent an outcome. If an
-intent cannot be bound, it says so — it never weakens the intent until it fits
-the page it found.
-
----
-
-### Agent 5 — Explorer **[R3]**
-
-Bug-hunting that does not depend on anyone having written a test case, because
-most of what a tester notices was never in a test case. Three bounded modes,
-described in §7b.
-
-Its output is **observations, not defects**. A triage pass proposes severity
-and whether each observation is a defect; a human confirms. Without triage the
-team is flooded with noise and stops reading the report — which is the most
-common way a system like this dies quietly.
 
 ---
 
@@ -220,17 +238,35 @@ no tooling to build, and it yields a real audit trail.
 Agent 2 MUST refuse to execute any mission that is not in `ai-qa-poc/missions/approved/`
 with a populated `approval` block.
 
-### Gate 1.5 — Binding Approval **[R3]**
+### Gate 1.5 — Binding Review, by Exception **[R4]**
 
 ```text
-Approved intent + live page → Mapper → missions/draft/*.json
-                            → Human QA review
-                            → missions/approved/*.json
+Approved intent + live page → Bind (2a) → missions/draft/*.json
+                                        → reconciliation report
+                                        → EXCEPTIONS ONLY to a human
+                                        → missions/approved/*.json
 ```
 
-Gate 1 approves *what we are testing*. Gate 1.5 approves *where it points*.
-Splitting them is what makes each review cheap: Gate 1 is business language a
-BA can read, Gate 1.5 is mostly "yes, that is the button".
+R3 made this a gate on every binding. That was wrong, and R3 said so itself:
+if the binder is usually right, reviewing every binding is a rubber stamp, and
+a rubber-stamp gate is worse than no gate because it manufactures the
+appearance of review.
+
+So the binder emits a confidence per binding, and only these reach a human:
+
+* nothing matched the intent
+* several things matched (`discovery.ts` already refuses to silently pick)
+* the binding resolved by a weak strategy — raw selector, or text alone
+* a control exists that no intent covers
+
+Everything high-confidence passes straight through. Review cost then scales
+with actual risk rather than with the size of the suite.
+
+What survives from R3 is the reason a human is in this loop at all: the intent
+says "submit credentials", the page offers *Sign in* and *Sign in with SSO*,
+and a wrong pick tests the SSO path and passes. Ambiguity detection catches
+"two things matched"; it does not catch "one thing matched and it was the
+wrong one". That is the case worth a human's five seconds.
 
 ---
 
@@ -377,13 +413,13 @@ designed out rather than warned about.
 `observable` is the one concession: it says what *kind* of evidence would
 settle the outcome (`message_shown`, `navigation`, `state_change`,
 `element_absent`, `element_present`, `data_persisted`, `access_denied`,
-`value_equals`). That is enough for the Mapper to know what family of check to
-bind, and still says nothing about the UI.
+`value_equals`). That is enough for the binding phase to know what family of
+check to bind, and still says nothing about the UI.
 
 ### Mission — the intent bound to a real page
 
-Unchanged from R2, and still what the Execution Agent consumes. The Mapper
-produces it; a human approves it at Gate 1.5.
+Unchanged from R2, and still what the Execution Agent consumes. Phase 2a
+produces it; a human reviews the exceptions at Gate 1.5.
 
 ### Why the split earns its keep
 
@@ -399,11 +435,13 @@ produces it; a human approves it at Gate 1.5.
 
 ### What it costs, stated honestly
 
-An extra artifact and an extra gate. If the Mapper turns out to bind cleanly
-almost every time, Gate 1.5 becomes a rubber stamp — and a rubber-stamp gate is
-worse than no gate, because it manufactures the appearance of review. The
-binding approval rate is therefore tracked from the first build. If it sits
-near 100%, Gate 1.5 gets merged into Gate 1 rather than left as theatre.
+An extra artifact, and a binding pass before execution rather than during it.
+
+R3 also added a gate on every binding, and that cost was real: if the binder is
+usually right, reviewing all of it is theatre. **[R4]** resolves this by
+reviewing exceptions only (§4 Gate 1.5). The exception rate is tracked from the
+first build — if it approaches zero, the review disappears on its own; if it is
+high, the binder is not good enough yet and that is worth knowing early.
 
 ---
 
@@ -472,16 +510,36 @@ human QA time than reporting nothing at all.
 
 ---
 
-## 7b. Exploration — Finding What No Test Case Describes **[R3]**
+## 7b. Exploration — Concurrent, Not Sequential **[R3, revised R4]**
 
 A mission answers the one question it was asked. An experienced tester does
 more: while testing the cart they notice the logo is broken, the console is
 throwing, a request 404'd. Nobody wrote a case for any of it.
 
-Ambient observation already exists ([ai-qa-poc/src/observer.ts](ai-qa-poc/src/observer.ts))
-and its governing rule stays absolute: **findings never change a mission's
-PASS/FAIL.** The mission asked one question and deserves one answer; mixing
-them makes both untrustworthy. Agent 5 adds three modes on top.
+This is **phase 2c of the Execution Agent**, and it runs *while* missions run —
+not as a pass afterwards. R3 described it as a separate sequential agent, which
+was wrong on both counts. Ambient observation already works this way today:
+[ai-qa-poc/src/observer.ts](ai-qa-poc/src/observer.ts) is started before the run,
+rides the mission's own browser session, and contributes nothing to the verdict.
+
+Its governing rule stays absolute: **findings never change a mission's
+PASS/FAIL.** The mission asked one question and deserves one answer; mixing them
+makes both untrustworthy.
+
+### What can share the mission's session, and what cannot **[R4]**
+
+| Mode | Shares the session? |
+|---|---|
+| Ambient — console, network, broken images | **Yes.** Already does. |
+| Sweeps — all images load, all controls labelled | **Yes.** Runs against whatever page the mission reaches. |
+| Build diff — page capture vs. the last build | **Yes**, in its own context. It does not need the mission at all. |
+| **Bounded state probe** — typing into inputs | **No.** |
+
+The last row is a physical constraint, not a preference. The state probe mutates
+the page: type 300 characters into the username field while a mission is trying
+to sign in and you have broken the mission and manufactured a false failure. It
+gets its own browser context — still concurrent in wall-clock terms, still
+inside Agent 2, isolated in state.
 
 **1. Sweeps** — one check across every element rather than one element at a
 time, so they keep covering things nobody wrote a mission for next week. Already
@@ -489,9 +547,9 @@ present: every image loads, every control has an accessible name. To add: every
 form field has a label, no duplicate accessible names, no dead links, clean
 console and network on load.
 
-**2. Bounded state probe** — for each input the explorer finds, a small fixed
-matrix: empty, whitespace only, max length + 1, unicode, paste, Enter to submit,
-tab order. It reports **what the application did**. It does not grade it.
+**2. Bounded state probe** — for each input found, a small fixed matrix: empty,
+whitespace only, max length + 1, unicode, paste, Enter to submit, tab order. It
+reports **what the application did**. It does not grade it.
 
 > There is no oracle here. The requirement does not say what a 300-character
 > username should do, so the explorer cannot know whether what happened is
@@ -841,10 +899,10 @@ Gate 1**, and it is the number most likely to kill this approach quietly.
 
 ```text
 Phase 1  Requirement analysis + clarification ledger + UI-free test intents  [R3]
-Phase 2  Mapper: bind intents to the real build, reconciliation report        [R3]
+Phase 2  Agent 2a: bind intents to the real build, reconciliation report      [R4]
 Phase 3  AI browser execution
 Phase 4  AI failure analysis
-Phase 5  Explorer: sweeps, bounded state probe, build diff                    [R3]
+Phase 5  Agent 2c: sweeps, state probe, build diff — concurrent with 2b       [R4]
 Phase 6  Defect pipeline and Jira, both directions                            [R3]
 Phase 7  New build automatically triggers smoke
 Phase 8  Stable AI-validated cases become deterministic Playwright tests

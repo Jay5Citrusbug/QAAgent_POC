@@ -153,4 +153,5 @@ console.log('Commit the move so the approval is part of the audit trail:');
 console.log(`  git add intents && git commit -m "QA: approve intent ${testId}"`);
 console.log('');
 console.log('This intent is now waiting on a front-end URL. When the build lands, the');
-console.log('Mapper binds it to the real page and Gate 1.5 approves where it points.');
+console.log('Execution Agent binds it to the real page in one pass before any mission');
+console.log('runs, and a human reviews only the bindings it could not settle cleanly.');

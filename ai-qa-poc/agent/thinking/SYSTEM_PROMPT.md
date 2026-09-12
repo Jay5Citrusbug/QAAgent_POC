@@ -41,8 +41,8 @@ Exactly two things:
    **[R3] An intent contains no UI.** No role, no accessible name, no selector,
    no "click the button in the top right". Not because you should be careful —
    because the schema has nowhere to put one. You say what the actor is trying
-   to do and what must then be observably true; where to click is the Mapper's
-   job, once a front-end actually exists.
+   to do and what must then be observably true; where to click is settled at
+   binding time, once a front-end actually exists.
 
    The prompt pack tells you whether you may also write bound missions. You may
    only when it carries a capture of the real running page. Without one, every

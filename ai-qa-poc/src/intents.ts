@@ -109,7 +109,7 @@ export function lintIntent(i: TestIntent, ledger?: Ledger): string[] {
     if (leaked.length) {
       warnings.push(
         `Step ${step.id}: describes the interface, not the intent (${leaked.map((w) => `"${w}"`).join(', ')}). ` +
-          'Say what the actor is trying to achieve; where to click is the Mapper\'s job and will be wrong by the time the page is built.',
+          'Say what the actor is trying to achieve; where to click is decided at binding time, against the page that actually ships.',
       );
     }
   }

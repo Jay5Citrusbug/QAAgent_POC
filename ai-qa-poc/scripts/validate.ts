@@ -87,7 +87,7 @@ for (const file of intentFiles) {
   console.log(`✓ ${where}  ${tag}${intent.assumption ? '  (rests on an assumption)' : ''}`);
 
   if (inApprovedDir && !approved) {
-    console.error('    ✗ in approved/ but has no approval block — the Mapper will refuse it.');
+    console.error('    ✗ in approved/ but has no approval block — the binding phase will refuse it.');
     failures += 1;
   }
 
@@ -106,7 +106,7 @@ for (const file of intentFiles) {
 
 if (intentFiles.length > 0 && files.length > 0) console.log('');
 
-// --- Missions (Gate 1.5) ----------------------------------------------------
+// --- Missions (Gate 1.5, reviewed by exception) ----------------------------------------------------
 
 for (const file of files) {
   const where = path.relative(PATHS.root, file).split(path.sep).join('/');

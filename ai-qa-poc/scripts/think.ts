@@ -190,7 +190,7 @@ const contracts = [
         'No page capture exists, so the application cannot be observed. Under those',
         'conditions a mission is unwriteable rather than merely risky — every target in',
         'it would be invented. Produce intents only. When a front-end URL exists, the',
-        'Mapper binds them to the real page and a human approves the binding at Gate 1.5.',
+        'Execution Agent binds them to the real page in one pass before running anything.',
         '',
       ]),
 ].join('\n');
@@ -300,7 +300,7 @@ Rules that decide whether your output is usable:
 * **An intent names no UI.** No role, no accessible name, no selector, no
   "click the button in the top right". Write what the actor is trying to achieve.
   If you cannot say it without naming a control, it is a binding detail and it
-  belongs to the Mapper, not to you.
+  belongs to binding time, not to you.
 * Every outcome needs a human \`statement\` and an \`observable\` saying what kind
   of evidence would settle it.
 * A \`blocked\` intent must assert **what the user is told**, not only that nothing
