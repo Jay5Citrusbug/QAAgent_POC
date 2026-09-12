@@ -71,9 +71,9 @@
       "A deterministic replay failed the same way."
     ]
   },
-  "first_seen": "2026-09-12T14:14:27.297Z",
-  "last_seen": "2026-09-12T14:26:19.446Z",
-  "occurrences": 8,
+  "first_seen": "2026-09-12T14:44:37.671Z",
+  "last_seen": "2026-09-12T14:44:37.674Z",
+  "occurrences": 2,
   "seen_in_builds": [
     "unknown"
   ]

@@ -55,9 +55,9 @@
       "At least one critical assertion could not be turned into a real expectation, so neither PASS nor FAIL can be justified."
     ]
   },
-  "first_seen": "2026-09-12T14:14:27.322Z",
-  "last_seen": "2026-09-12T14:26:19.470Z",
-  "occurrences": 8,
+  "first_seen": "2026-09-12T14:44:37.685Z",
+  "last_seen": "2026-09-12T14:44:37.688Z",
+  "occurrences": 2,
   "seen_in_builds": [
     "unknown"
   ]

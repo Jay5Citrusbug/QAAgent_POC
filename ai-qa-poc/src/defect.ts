@@ -81,8 +81,17 @@ export interface DefectCandidate {
  * Without this, a run id or a timestamp in the error text makes every run a new
  * defect — which looks exactly like deduplication being broken, because it is.
  */
+// eslint-disable-next-line no-control-regex -- matching ANSI escapes requires them
+const ANSI = /\[[0-9;]*m/g;
+
 function normalise(text: string): string {
   return text
+    // Playwright colourises its expectation failures when it thinks a terminal
+    // is attached and does not when it does not. The same assertion failing the
+    // same way in two runs therefore produced two fingerprints and two reports
+    // for one defect — invisible in the rendered output, since the escapes do
+    // not print.
+    .replace(ANSI, '')
     .toLowerCase()
     .replace(/\b[0-9a-f]{8,}\b/g, '<hex>')
     .replace(/\b\d{4}-\d{2}-\d{2}t[\d:.]+z?\b/g, '<time>')
@@ -256,6 +265,39 @@ export function fromExecution(
  * a scripted suite structurally cannot find. They carry no reproduction steps
  * beyond "open the page", and pretending otherwise would be padding.
  */
+/**
+ * What makes a finding *this* finding.
+ *
+ * Fingerprinting on (kind, summary, page url) looked right and was badly wrong:
+ * one broken logo in the site header produced three separate defect reports —
+ * one per page it appeared on, plus another from the mission that walked past
+ * it, because the two code paths word the summary differently. Six requirements
+ * across a dozen pages each would have buried the queue in copies of a handful
+ * of real problems.
+ *
+ * The identity of a broken image is the image. The identity of a dead link is
+ * the link. Neither is the page you happened to be standing on when you noticed,
+ * and neither is the sentence the code used to describe it. So when a finding
+ * names a resource, that resource *is* the identity — which also makes the same
+ * defect seen by a sweep and by ambient observation collapse into one report,
+ * as it should.
+ *
+ * The exception is input validation, where the page genuinely is part of the
+ * identity: an "Email" field on the sign-up form and an "Email" field on the
+ * profile form are different fields with different rules.
+ */
+function findingIdentity(
+  finding: NonNullable<ExecutionResult['incidental_findings']>[number],
+  url: string,
+): (string | undefined)[] {
+  const resource = `${finding.detail ?? ''} ${finding.summary}`.match(/https?:\/\/[^\s)"']+/)?.[0];
+  if (resource) return [finding.kind, resource];
+  if (finding.kind === 'input_unvalidated') return [finding.kind, finding.summary, url];
+  // No resource named: identify by the element itself, not by where it was
+  // seen. A nav control missing its label is one defect, not one per page.
+  return [finding.kind, finding.summary, finding.detail];
+}
+
 export function fromFinding(
   finding: NonNullable<ExecutionResult['incidental_findings']>[number],
   context: { url?: string; build?: string; run_id?: string; feature?: string },
@@ -264,7 +306,7 @@ export function fromFinding(
   const url = finding.url ?? context.url ?? '(unknown page)';
 
   return {
-    fingerprint: fingerprint([finding.kind, finding.summary, url]),
+    fingerprint: fingerprint(findingIdentity(finding, url)),
     title: `[${context.feature ?? 'exploration'}] ${finding.summary}`.slice(0, 120),
     source: 'exploration',
     status: 'candidate',

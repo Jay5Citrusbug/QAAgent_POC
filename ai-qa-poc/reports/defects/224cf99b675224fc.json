@@ -1,0 +1,26 @@
+{
+  "fingerprint": "224cf99b675224fc",
+  "title": "[ecommerce] More than one control is named button \"add to cart\"",
+  "source": "exploration",
+  "status": "candidate",
+  "severity": "trivial",
+  "environment": {
+    "url": "https://buggyqa.vercel.app/",
+    "build": "unknown",
+    "browser": "chromium",
+    "observed_at": "2026-09-12T14:44:39.449Z"
+  },
+  "summary": "More than one control is named button \"add to cart\"\n\nNobody wrote a test case for this. It was noticed while walking the page during another test, which is the only reason it is here at all.",
+  "steps_to_reproduce": [
+    "1. Open https://buggyqa.vercel.app/",
+    "2. Observe the behaviour described above."
+  ],
+  "expected": "Not stated by any requirement — this is an observation, and someone who knows the product must decide whether it is a defect.",
+  "actual": "8 elements share this name, so a target naming it cannot resolve without a \"within\" scope",
+  "first_seen": "2026-09-12T14:44:39.449Z",
+  "last_seen": "2026-09-12T14:44:39.449Z",
+  "occurrences": 1,
+  "seen_in_builds": [
+    "unknown"
+  ]
+}

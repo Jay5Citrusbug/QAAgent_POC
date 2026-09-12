@@ -1,0 +1,27 @@
+{
+  "fingerprint": "d0047eabed8c8803",
+  "title": "[Global Navigation] HTTP 404 — image",
+  "source": "exploration",
+  "status": "candidate",
+  "severity": "minor",
+  "environment": {
+    "url": "https://buggyqa.vercel.app/",
+    "build": "unknown",
+    "browser": "chromium",
+    "run_id": "20260912122252-zzx3",
+    "observed_at": "2026-09-12T14:44:37.689Z"
+  },
+  "summary": "HTTP 404 — image\n\nNobody wrote a test case for this. It was noticed while walking the page during another test, which is the only reason it is here at all.",
+  "steps_to_reproduce": [
+    "1. Open https://buggyqa.vercel.app/",
+    "2. Observe the behaviour described above."
+  ],
+  "expected": "Not stated by any requirement — this is an observation, and someone who knows the product must decide whether it is a defect.",
+  "actual": "https://buggyqa.vercel.app/_next/image?url=https%3A%2F%2Fimages.unsplash.com%2Fphoto-1454165833767-027508992bdb%3Fw%3D1200%26h%3D400%26fit%3Dcrop&w=1920&q=75",
+  "first_seen": "2026-09-12T14:44:37.676Z",
+  "last_seen": "2026-09-12T14:44:37.689Z",
+  "occurrences": 4,
+  "seen_in_builds": [
+    "unknown"
+  ]
+}

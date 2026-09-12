@@ -75,9 +75,9 @@
       "Every failing assertion failed because its element could not be found, not because it held the wrong value. That is equally consistent with a stale or invented target descriptor as with a real defect — check the failure snapshot before treating this as a product bug."
     ]
   },
-  "first_seen": "2026-09-12T14:14:27.345Z",
-  "last_seen": "2026-09-12T14:26:19.500Z",
-  "occurrences": 8,
+  "first_seen": "2026-09-12T14:44:37.701Z",
+  "last_seen": "2026-09-12T14:44:37.704Z",
+  "occurrences": 2,
   "seen_in_builds": [
     "unknown"
   ]

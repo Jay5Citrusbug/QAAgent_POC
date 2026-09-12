@@ -32,6 +32,13 @@ import { capturePair } from '../src/captures.js';
 import { diffCaptures, renderDiff } from '../src/build-diff.js';
 import { probePage, renderProbe, type ProbeReport } from '../src/probe.js';
 import {
+  findingsFromDiff,
+  findingsFromProbe,
+  findingsFromSweeps,
+  saveExploration,
+  type ExplorationFinding,
+} from '../src/exploration.js';
+import {
   describeSweep,
   sweepAccessibleNames,
   sweepDeadLinks,
@@ -194,12 +201,36 @@ fs.mkdirSync(PATHS.reports, { recursive: true });
 const outFile = path.join(PATHS.reports, `exploration-${featureName ?? 'default'}-${stamp}.md`);
 fs.writeFileSync(outFile, `${lines.join('\n')}\n`, 'utf8');
 
+/**
+ * The machine-readable half.
+ *
+ * Without this the markdown above was the only output, so every sweep offender
+ * and every probe note died in a file nobody could act on — which made the
+ * whole point of §7b (finding bugs no test case describes) stop at "and then
+ * somebody reads it". The defect pipeline picks these up with
+ * `npm run defects -- --from-exploration`.
+ */
+const findings: ExplorationFinding[] = [
+  ...sweepResults.flatMap((p) => findingsFromSweeps(p.url, p.results)),
+  ...probeResults.flatMap(findingsFromProbe),
+  ...(diff ? findingsFromDiff(diff.changes) : []),
+];
+
+const findingsFile = saveExploration({
+  feature: featureName ?? 'default',
+  build: RUNTIME.build,
+  generated_at: new Date().toISOString(),
+  findings,
+});
+
 console.log('');
 console.log(`Exploration report: ${rel(outFile)}`);
 console.log('');
 console.log(`  Sweep findings   ${offenderTotal}`);
 console.log(`  Probe notes      ${probeResults.reduce((n, r) => n + r.observations.length, 0)}`);
 console.log(`  Build changes    ${diff ? diff.changes.length : 'no baseline yet'}`);
+console.log(`  Actionable       ${findings.length} (in ${rel(findingsFile)})`);
 console.log('');
-console.log('None of this is a defect until a human says so. To turn a confirmed one into');
-console.log('a paste-ready ticket:  npm run defects -- --from-exploration');
+console.log('None of this is a defect until a human says so. Write the actionable ones up:');
+console.log('  npm run defects -- --from-exploration');
+console.log('  npm run defects -- --list');

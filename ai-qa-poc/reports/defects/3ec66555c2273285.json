@@ -16,8 +16,8 @@
     "build": "unknown",
     "browser": "chromium",
     "role": "guest",
-    "run_id": "20260912120500-7fpc",
-    "observed_at": "2026-09-12T12:05:23.654Z"
+    "run_id": "20260912122229-elws",
+    "observed_at": "2026-09-12T12:22:52.754Z"
   },
   "summary": "Verify the footer platform description spells 'purpose' correctly. The application did not behave as the requirement describes. A deterministic replay reproduced it identically, so this is not flakiness.",
   "preconditions": [
@@ -31,35 +31,35 @@
   "evidence": [
     {
       "kind": "log",
-      "path": "runs/SM-003/20260912120500-7fpc-replay/execution.log"
+      "path": "runs/SM-003/20260912122229-elws-replay/execution.log"
     },
     {
       "kind": "snapshot",
-      "path": "runs/SM-003/20260912120500-7fpc-replay/failure-snapshot.yaml"
+      "path": "runs/SM-003/20260912122229-elws-replay/failure-snapshot.yaml"
     },
     {
       "kind": "screenshot",
-      "path": "runs/SM-003/20260912120500-7fpc-replay/failure.png"
+      "path": "runs/SM-003/20260912122229-elws-replay/failure.png"
     },
     {
       "kind": "trace",
-      "path": "runs/SM-003/20260912120500-7fpc-replay/trace.zip"
+      "path": "runs/SM-003/20260912122229-elws-replay/trace.zip"
     },
     {
       "kind": "log",
-      "path": "runs/SM-003/20260912120500-7fpc/execution.log"
+      "path": "runs/SM-003/20260912122229-elws/execution.log"
     },
     {
       "kind": "snapshot",
-      "path": "runs/SM-003/20260912120500-7fpc/failure-snapshot.yaml"
+      "path": "runs/SM-003/20260912122229-elws/failure-snapshot.yaml"
     },
     {
       "kind": "screenshot",
-      "path": "runs/SM-003/20260912120500-7fpc/failure.png"
+      "path": "runs/SM-003/20260912122229-elws/failure.png"
     },
     {
       "kind": "trace",
-      "path": "runs/SM-003/20260912120500-7fpc/trace.zip"
+      "path": "runs/SM-003/20260912122229-elws/trace.zip"
     }
   ],
   "classification": {
@@ -71,9 +71,9 @@
       "A deterministic replay failed the same way."
     ]
   },
-  "first_seen": "2026-09-12T14:14:27.313Z",
-  "last_seen": "2026-09-12T14:26:19.452Z",
-  "occurrences": 4,
+  "first_seen": "2026-09-12T14:44:37.678Z",
+  "last_seen": "2026-09-12T14:44:37.680Z",
+  "occurrences": 2,
   "seen_in_builds": [
     "unknown"
   ]

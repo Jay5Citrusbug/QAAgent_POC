@@ -3,6 +3,7 @@
  *
  *   npm run defects                              # build from every run on disk
  *   npm run defects -- --test SM-004             # just one test's runs
+ *   npm run defects -- --from-exploration        # sweeps, probe and build regressions
  *   npm run defects -- --list                    # what is already on file
  *   npm run defects -- --show <fingerprint>      # print one, ready to paste
  *   npm run defects -- --confirm <fp> --by "jay.r" --ticket QA-123
@@ -20,6 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadAppContext, PATHS, rel } from '../src/config.js';
 import { fromExecution, fromFinding, listDefects, renderDefect, upsert, writeReport, type DefectCandidate } from '../src/defect.js';
+import { listExplorations } from '../src/exploration.js';
 import { readMissionFile } from '../src/validate.js';
 import type { ExecutionResult, TestMission } from '../src/types.js';
 
@@ -110,6 +112,50 @@ for (const decision of ['confirm', 'reject'] as const) {
     console.log('Kept, not deleted. A defect the team decided was not a defect is information');
     console.log('the next run needs, or it gets re-raised forever.');
   }
+  process.exit(0);
+}
+
+// --- Build from exploration -------------------------------------------------
+
+/**
+ * Findings from `npm run explore` — sweeps, the input probe, build regressions.
+ *
+ * These are the bugs no test case describes, which is the only reason §7b
+ * exists. They deduplicate against findings noticed during missions by the same
+ * fingerprint, so the same broken image seen both ways is one report.
+ */
+if (has('from-exploration')) {
+  const reports = listExplorations(arg('feature'));
+  if (reports.length === 0) {
+    console.error('No exploration reports found. Run one first:');
+    console.error('  npm run explore -- --feature <feature>');
+    process.exit(1);
+  }
+
+  let made = 0;
+  let repeated = 0;
+
+  for (const report of reports) {
+    for (const finding of report.findings) {
+      const { isNew } = upsert(
+        fromFinding(finding, { url: finding.url, build: report.build, feature: report.feature }),
+      );
+      isNew ? (made += 1) : (repeated += 1);
+    }
+  }
+
+  for (const d of listDefects()) writeReport(d);
+
+  const waiting = listDefects().filter((d) => d.status === 'candidate');
+  console.log(`Read ${reports.length} exploration report(s).`);
+  console.log('');
+  console.log(`  new defect reports  ${made}`);
+  console.log(`  repeats merged      ${repeated}`);
+  console.log('');
+  console.log(`${waiting.length} report(s) awaiting Gate 2 in ${rel(PATHS.defects)}`);
+  console.log('');
+  console.log('These came from exploration, so no requirement states what should have');
+  console.log('happened. Whether each is a defect is a product judgement, not a test result.');
   process.exit(0);
 }
 
