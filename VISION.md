@@ -261,6 +261,13 @@ with a populated `approval` block.
 
 ### Gate 1.5 — Binding Review, by Exception **[R4]**
 
+**[R5] Enforced once, run twice.** The web UI at `ai-qa-poc/web/` used to
+reimplement this gate — its own copy of the schema check, with no check at all
+for binding exceptions. A mission the terminal refused approved with one click
+in the browser. The route now delegates to `scripts/approve.ts` rather than
+re-copying it, so there is exactly one implementation of every gate and the
+two front ends cannot drift apart again.
+
 ```text
 Approved intent + live page → Bind (2a) → missions/draft/*.json
                                         → reconciliation report

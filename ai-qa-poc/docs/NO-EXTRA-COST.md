@@ -86,6 +86,18 @@ nothing the two routes above do not already give you.
 
 ---
 
+## The free routes still enforce every gate **[R5]**
+
+This matters independently of billing. `/api/approve` (the browser's Gate 1.5)
+used to be its own copy of the approval logic — schema check only, nothing for
+binding exceptions. It now delegates to `scripts/approve.ts` instead of
+re-implementing it, so a mission the terminal refuses is refused in the
+browser too, with the same message. That endpoint calls no model and costs
+nothing either way; it was a correctness gap, not a billing one, and it is
+closed regardless of which route generates the missions.
+
+---
+
 ## What this does not change
 
 The cost question only touches **who runs the model**. Everything else is

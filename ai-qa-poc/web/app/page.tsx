@@ -52,6 +52,17 @@ export default function Page() {
   const [reviewMinutes, setReviewMinutes] = useState('');
   const [saved, setSaved] = useState<string[]>([]);
   const [approvedIds, setApprovedIds] = useState<string[]>([]);
+  /**
+   * Binding exceptions per mission, and which ones the human has said they read.
+   *
+   * Gate 1.5 exists because a binder that could not settle something must not
+   * have that decision made for it by a default. Showing the exceptions and
+   * requiring a deliberate tick is the browser's version of the CLI's
+   * --reviewed; without it, approving blind and approving after reading are the
+   * same click.
+   */
+  const [exceptions, setExceptions] = useState<Record<string, { kind: string; where: string; summary: string }[]>>({});
+  const [reviewed, setReviewed] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -148,6 +159,8 @@ export default function Page() {
       }
       if (!res.ok) throw new Error(d.error ?? `Request failed (${res.status})`);
       setSaved(d.written ?? []);
+      // Drafts are on disk now, so the gate can read what the binder left open.
+      void loadExceptions();
       if (d.rejected?.length) {
         setError(
           `${d.rejected.length} mission(s) failed schema validation and were not written: ` +
@@ -161,6 +174,18 @@ export default function Page() {
     }
   }
 
+  /** Load which drafts carry binding exceptions, so the gate can show them. */
+  async function loadExceptions() {
+    try {
+      const res = await fetch('/api/approve');
+      const data = (await res.json()) as { exceptions?: Record<string, { kind: string; where: string; summary: string }[]> };
+      setExceptions(data.exceptions ?? {});
+    } catch {
+      // Not fatal: the CLI still refuses on the server side. This only affects
+      // whether the browser can explain the refusal before it happens.
+    }
+  }
+
   async function approve(testId: string) {
     setError('');
     setBusy(true);
@@ -169,9 +194,13 @@ export default function Page() {
         testId,
         approvedBy: approver,
         reviewMinutes: reviewMinutes ? Number(reviewMinutes) : undefined,
+        reviewedExceptions: reviewed.includes(testId),
       });
       setApprovedIds((a) => [...a, testId]);
     } catch (e) {
+      // The message comes from scripts/approve.ts verbatim — it names the
+      // exception and says what to do, which is better than anything this
+      // could paraphrase.
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -404,13 +433,43 @@ export default function Page() {
               {missions.map((m) => {
                 const id = String(m.test_id ?? '');
                 const done = approvedIds.includes(id);
+                const open = exceptions[id] ?? [];
+                const acknowledged = reviewed.includes(id);
                 return (
-                  <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                    <code style={{ minWidth: 78 }}>{id}</code>
-                    <span style={{ flex: 1, fontSize: 13.5, color: 'var(--muted)' }}>{String(m.test_objective ?? '')}</span>
-                    <button className={done ? 'ok' : ''} onClick={() => approve(id)} disabled={busy || done || !approver.trim()}>
-                      {done ? 'Approved' : 'Approve'}
-                    </button>
+                  <div key={id} style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <code style={{ minWidth: 78 }}>{id}</code>
+                      <span style={{ flex: 1, fontSize: 13.5, color: 'var(--muted)' }}>{String(m.test_objective ?? '')}</span>
+                      <button
+                        className={done ? 'ok' : ''}
+                        onClick={() => approve(id)}
+                        disabled={busy || done || !approver.trim() || (open.length > 0 && !acknowledged)}
+                      >
+                        {done ? 'Approved' : 'Approve'}
+                      </button>
+                    </div>
+                    {open.length > 0 && !done && (
+                      <div className="alert" style={{ margin: '6px 0 14px 90px', fontSize: 13 }}>
+                        <strong>The binder could not settle {open.length} thing{open.length > 1 ? 's' : ''}.</strong>
+                        <ul style={{ margin: '8px 0', paddingLeft: 18 }}>
+                          {open.map((e) => (
+                            <li key={e.where} style={{ marginBottom: 4 }}>
+                              <code>{e.where}</code> ({e.kind}) — {e.summary}
+                            </li>
+                          ))}
+                        </ul>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <input
+                            type="checkbox"
+                            checked={acknowledged}
+                            onChange={(ev) =>
+                              setReviewed((r) => (ev.target.checked ? [...r, id] : r.filter((x) => x !== id)))
+                            }
+                          />
+                          I have read these and the mission is right as it stands.
+                        </label>
+                      </div>
+                    )}
                   </div>
                 );
               })}
