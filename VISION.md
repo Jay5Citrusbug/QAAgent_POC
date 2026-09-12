@@ -17,6 +17,15 @@
 > splitting them implied a separation that does not exist. R4 folds them back
 > into Agent 2 as phases, and fixes what R3 got wrong about *when* each one
 > runs. Changes are marked **[R4]**.
+>
+> **Revision 5.** The scope changes. R1-R4 sized this as a one-feature proof
+> on one product; the real goal is a system that survives being pointed at
+> anything, built to reach production rather than to win an argument. So POC-1
+> becomes a set of unrelated requirements run through the same unmodified
+> pipeline, and what is measured stops being "did the loop work once" and
+> becomes "does it hold up across requirements nobody tailored it to". R5 also
+> corrects §8, which described an execution model that is not the one that got
+> built. Changes are marked **[R5]**.
 
 ---
 
@@ -598,22 +607,38 @@ Playwright owns: browser control, navigation, clicking, typing/filling,
 uploading, assertions/verification, screenshots, tracing, browser state,
 cross-browser execution.
 
-POC-1 uses **Playwright CLI**, because current Playwright documentation
-positions CLI as the more token-efficient approach for coding-agent workflows.
-MCP remains a possible later execution mechanism for more exploratory,
-agentic workflows.
+### What actually got built, and why it differs from R2 **[R5]**
 
-### Stating the CLI trade-off honestly **[R2]**
+R2 said POC-1 would use **Playwright CLI**, with the agent writing an ephemeral
+script per mission and iterating on failure. That is not what exists. The
+executor ([ai-qa-poc/src/executor.ts](ai-qa-poc/src/executor.ts)) drives the
+Playwright **library API** directly, and **no agent writes any code at all**.
 
-With the CLI approach the agent *does* write Playwright code — ephemeral, one
-script per mission, iterated on failure. Success criterion 3 means **no human
-writes Playwright first**; it does not mean no code exists. Nobody should later
-feel misled on this point.
+The change was not planned; it fell out of building the thing. Once missions
+carried structured `actions` and machine-checkable `check` objects (§5), there
+was nothing left for a generated script to decide — the mission already said
+what to click and what to verify, and generating code to re-express that would
+have added a translation step whose only distinctive contribution was the chance
+to get it wrong.
 
-What CLI costs us: the native inspect → act → observe loop that MCP provides for
-free. Under CLI the agent must re-run a script to observe state. We accept that
-in exchange for token efficiency, and revisit if discovery proves too slow in
-practice.
+What the library approach buys, and why it is kept:
+
+* **No model in the click loop.** Discovery is deterministic matching against
+  the live accessibility tree ([ai-qa-poc/src/discovery.ts](ai-qa-poc/src/discovery.ts)).
+  A run cannot hallucinate a control, and it costs nothing per step.
+* **Repeatability.** The same mission against the same page does the same thing,
+  which is what makes the replay in §7 meaningful. A regenerated script is a
+  different script.
+* **The inspect → act → observe loop is native**, which is exactly what R2 listed
+  as the cost of going CLI. We get it back for free.
+
+What it costs: the system can only do what the action and check vocabularies can
+express. When a mission needs something outside them, the honest answer is
+`INCONCLUSIVE` or a manual mission — not a cleverer generated script. That
+ceiling is real, and it is the price of everything above.
+
+Success criterion 3 is unaffected, and now stronger: no human writes Playwright
+first, and no model writes it at all.
 
 **Tracing is on from day one** (`trace: retain-on-failure`). The Playwright
 trace viewer by itself satisfies most of §12: a human can review a failure
@@ -818,67 +843,150 @@ means re-raising it forever.
 
 ---
 
-## 14. POC-1 Scope
+## 14. POC-1 Scope **[R5 — rescoped]**
+
+R1–R4 scoped this as one feature on one product: four smoke missions against
+WorkPod comment attachments on STAGE. That was the right shape for proving a
+loop works once. It is the wrong shape for the actual question, which is whether
+this survives contact with requirements nobody wrote it for.
+
+A system that works on one hand-picked feature has proven almost nothing. The
+failure mode it cannot detect is the expensive one: a pipeline quietly tuned to
+the shape of its own example, which falls over on the second requirement and
+takes a quarter to discover.
+
+### What POC-1 is now
 
 ```text
-1 project
-1 feature
-1 staging environment
+5–6 unrelated requirements, supplied by the QA Lead
+Run end to end through the same unmodified pipeline
+Measured per requirement, and compared across them
 1 browser: Chromium
-1 role: Admin          [R2 — was: multiple roles]
-4 smoke missions       [R2 — was: 5]
+Roles: whatever each requirement actually needs
 ```
 
-Do NOT initially build: full regression, all browsers, mobile, performance
-testing, accessibility testing, CI/CD, automatic defect creation, self-healing,
-vector database, RAG, complex multi-agent orchestration, 10+ projects.
+The requirements are chosen to *differ* — different domains, different levels of
+detail, different amounts of missing information. A requirement that is vague, or
+about a feature that does not exist yet, or that needs data nobody has seeded, is
+not a bad input for this exercise. It is the input most worth having, because
+those are the ones that reveal whether the gates hold.
 
-POC-1 is only proving the core execution concept.
+### The rule that keeps it honest
+
+**Nothing in `src/` may learn about any one requirement.** Everything
+domain-specific lives in `input/feature-*/`, `knowledge/`, `intents/` and
+`missions/` — never in the engine. `npm run new-feature` exists so that adding a
+domain is a single command, and the tempting shortcut (copy somebody else's
+folder and change the words) is never the easy path.
+
+If a requirement can only be made to work by editing the engine, that is a
+finding about the engine. It gets recorded, not patched around.
+
+### Production-readiness is the target, not a later phase
+
+This is not a demo to be rewritten afterwards. The things that make it
+production-shaped are the same things that make it trustworthy, and most are
+already here: schema-validated contracts, gates that refuse rather than warn,
+evidence sufficient to review a failure without re-running it, and deduplicated
+defect reporting.
+
+What still stands between this and production is listed in §14a. It is a short
+list, and none of it is a rewrite.
+
+Still NOT in scope: full regression suites, all browsers, mobile, performance
+testing, CI/CD triggering, automatic defect creation without Gate 2, self-healing
+locators, vector databases, RAG.
 
 ---
 
-## 15. Recommended POC Feature
+## 14a. What Production Actually Needs **[R5]**
 
-`WorkPod comment attachments`, on STAGE.
+Tracked here so "production-ready" stays a claim with a checklist behind it
+rather than an adjective.
 
-```text
-SM-001  Admin can create a WorkPod            (simplest proof of the loop)
-SM-002  Admin uploads valid PDF to a comment
-SM-003  Admin uploads valid HTML to a comment
-SM-004  Unsupported file type is rejected     (negative — expected_outcome: blocked)
-```
+| | Status |
+|---|---|
+| Domain-neutral engine, per-feature configuration | **done** — proven on two unrelated sites |
+| Schema-validated contract at every hand-off | **done** |
+| Gates that refuse rather than warn (1, 1.5, 2) | **done** |
+| Evidence sufficient to review without re-running | **done** |
+| Defect reports with fingerprint deduplication | **done** |
+| Session seeding for authenticated roles | **pending** — §16 assumes it; nothing creates it |
+| Exploration findings reaching the defect pipeline | **pending** |
+| Stable missions promoted to deterministic Playwright | **pending** — §9, and where the recurring saving is |
+| Classifier / human disagreement rate measured | **pending** — §13a names it; nothing computes it |
+| Baseline numbers captured | **pending** — [ai-qa-poc/docs/BASELINE.md](ai-qa-poc/docs/BASELINE.md) |
+| CI triggering a smoke run on a new build | not started — §18 phase 7 |
 
-**Deferred to POC-2 [R2]:** `SM-005 Guest / unauthorized behaviour`. It needs a
-second role, a second account, and possibly separate tenant setup — environment
-cost disproportionate to what it proves, since SM-001..SM-004 on a single Admin
-role exercises the identical loop. The role matrix is a POC-2 concern.
+---
 
-The first successful execution should prove:
+## 15. What Gets Measured Across the Requirement Set **[R5]**
 
-```text
-Natural-language mission → AI browser execution → Playwright
-→ Application → Verification → Structured result
-```
+One requirement produces an anecdote. Five or six produce a shape, and the shape
+is the deliverable.
+
+Per requirement, recorded as it goes:
+
+| Measure | Why it decides something |
+|---|---|
+| Gaps raised, and how many changed the requirement | The cheapest defect this system finds. A gap closed at story time costs a conversation; the same gap at UAT costs a release. |
+| Gate 1 review minutes per intent | The hidden failure mode (§17). Intents costing twenty minutes each are a net loss however good execution is. |
+| Intents blocked on open clarifications | High early is healthy. Still blocked at the end means questions are not being answered — a process finding, not a tool finding. |
+| Binding exception rate | Near 0% means Gate 1.5 is theatre and should merge into Gate 1. Near 100% means the binder is not earning its place. The number decides, not an opinion. |
+| Intents that could not bind at all | Missing features and renamed controls, found before any browser run is paid for. |
+| Controls no intent covers | Coverage holes nobody would otherwise have listed. |
+| PASS / FAIL / BLOCKED / INCONCLUSIVE | INCONCLUSIVE is not failure — it is the system declining to guess. A rate of zero is suspicious, not excellent. |
+| Defects confirmed vs. rejected at Gate 2 | The false-defect rate, and the number that decides whether anyone keeps reading the reports. |
+| Human minutes to a trustworthy smoke decision | §17's KPI, per requirement, against the manual baseline. |
+
+### What would make this a failure, stated in advance
+
+Deciding afterwards what counts as success is how a POC always succeeds.
+
+* Gate 1 review time **not falling** across requirements 1 → 6. If reviewing the
+  twentieth intent costs what the first did, the system is generating work rather
+  than absorbing it.
+* A **rising** false-defect rate at Gate 2 across the set.
+* Any requirement that needs an **engine change** to get through the pipeline.
+* Total human minutes per requirement **not below** the manual baseline by the
+  sixth one.
+
+Each of those is a real answer and worth knowing early. None of them is a reason
+to quietly adjust the criteria.
 
 ---
 
 ## 16. Current Technical Direction
 
 ```text
-Thinking:   Existing ChatGPT / cloud LLM
+Thinking:   Cloud LLM in a chat seat you already pay for  (npm run think / import)
+                ↓
+            Clarification ledger  ←→  human answers            [R3]
+                ↓
+            Test Intent JSON, schema-validated, UI-free        [R3]
                 ↓
             Human review (Gate 1, via git)
                 ↓
-            Test Mission JSON (schema-validated)
+Binding:    Agent 2a against a page capture                    [R4]
                 ↓
-Execution:  AI/browser-capable coding agent
+            Test Mission JSON + reconciliation report
                 ↓
-            Playwright CLI → Chromium → STAGE
+            Human review (Gate 1.5 — exceptions only)          [R4]
                 ↓
+Execution:  Deterministic executor, Playwright library API     [R5]
+                ↓
+            Chromium → application under test
+                ↓            ↘ Agent 2c exploration, concurrent [R4]
 Classify:   Separate cheap pass (Agent 3)
                 ↓
             Human review (Gate 2)
+                ↓
+            Defect report, deduplicated, ready to paste        [R4]
 ```
+
+**[R5]** "AI/browser-capable coding agent" and "Playwright CLI" are gone from
+this diagram because neither describes what runs. Nothing generates code at
+execution time — see §8.
 
 Do NOT introduce Ollama initially: speed is uncertain, accuracy varies by
 hardware, browser tool-calling quality matters, and the POC should prove
@@ -891,8 +999,10 @@ requirement text (or a link plus a content hash) is committed alongside it under
 `ai-qa-poc/input/feature/` and referenced by `requirement_ref`. Otherwise success
 criterion 8 is unenforceable.
 
-**Authentication [R2]:** roles authenticate via seeded Playwright
-`storageState`, refreshed out-of-band — never a UI login per mission.
+**Authentication [R2, tooling R5]:** roles authenticate via seeded Playwright
+`storageState`, refreshed out-of-band — never a UI login per mission. R2 named
+the mechanism and left no way to produce one, so every authenticated mission
+failed on a missing file; `npm run auth` now records a session interactively.
 Credential handling for STAGE is decided before the first run, and no credential
 is ever written into a mission file.
 
