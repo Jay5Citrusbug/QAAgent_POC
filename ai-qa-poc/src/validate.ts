@@ -67,6 +67,63 @@ export function lintMission(m: TestMission): string[] {
     if (a.check.type === 'attribute_equals' && !a.check.attribute) {
       warnings.push(`Assertion ${a.id}: attribute_equals needs an attribute name.`);
     }
+
+    /**
+     * Circular assertion: the element is located BY the same text the check
+     * then verifies, so the check is guaranteed to hold and can never fail.
+     *
+     * This is not hypothetical. A generated mission asserted "the nav link
+     * reads 'Home', not 'Hoem'" by locating role=link name="Home" and checking
+     * its text equalled "Home". The misspelled nav link simply never matched,
+     * the correctly-spelled footer link did, and the run reported PASS while
+     * the bug it existed to catch went untested. A false pass is the worst
+     * outcome this system can produce — it retires a real test while looking
+     * like coverage.
+     *
+     * The fix is to locate by something other than the text under test — a
+     * scope (`within`), a role, a test id — and assert the text separately.
+     */
+    if (a.check.type === 'text_equals' || a.check.type === 'text_contains') {
+      const locatedBy = [a.check.target?.name, a.check.target?.text].filter(Boolean).map(String);
+      const expected = a.check.value === undefined ? undefined : String(a.check.value);
+      if (expected !== undefined && locatedBy.some((v) => v.toLowerCase() === expected.toLowerCase())) {
+        warnings.push(
+          `Assertion ${a.id}: CIRCULAR — the element is found by the text "${expected}" and then checked for that same text, ` +
+            `so it can never fail. Locate it another way (a "within" scope, a role, a test id) and assert the text separately.`,
+        );
+      }
+    }
+
+    // An assertion about one region that could match an identical element
+    // elsewhere grades whichever it happens to find first. Targeting the
+    // landmark itself (role=contentinfo for a footer, navigation for a nav)
+    // already scopes it, so only warn when nothing pins it down.
+    const LANDMARK_FOR: Record<string, string> = {
+      nav: 'navigation',
+      navigation: 'navigation',
+      menu: 'navigation',
+      header: 'banner',
+      footer: 'contentinfo',
+      sidebar: 'complementary',
+    };
+    const statement = a.statement.toLowerCase();
+    const region = Object.keys(LANDMARK_FOR).find((r) => statement.includes(r));
+    const target = a.check.target;
+    if (region && target) {
+      const landmark = LANDMARK_FOR[region];
+      const scoped =
+        Boolean(target.within) ||
+        Boolean(target.test_id) ||
+        target.role === landmark ||
+        target.within?.role === landmark;
+      if (!scoped) {
+        warnings.push(
+          `Assertion ${a.id}: mentions the ${region} but its target is not scoped to it ` +
+            `(no "within", no test id, and the target's own role is not "${landmark}"), ` +
+            `so a matching element in another region would be graded instead.`,
+        );
+      }
+    }
   }
 
   for (const [i, action] of m.actions.entries()) {

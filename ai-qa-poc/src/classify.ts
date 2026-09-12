@@ -140,9 +140,36 @@ export function classify(result: ExecutionResult, mission: TestMission): Classif
       );
     }
 
+    /**
+     * An assertion that failed because its element was never found is much
+     * weaker evidence of a product defect than one that found the element and
+     * read the wrong value.
+     *
+     * "Not found" has three very different causes that look identical here:
+     * the feature is broken (a real defect), the descriptor is wrong (a test
+     * defect), or the element was never specified in the requirement at all
+     * (an invented expectation). Calling that PRODUCT_DEFECT with HIGH
+     * confidence manufactures false defects — which cost more QA time than
+     * reporting nothing, and teach the team to distrust every result.
+     */
+    const notFound = failed.filter((a) => /not found|could not identify/i.test(a.error ?? ''));
+    const allNotFound = failed.length > 0 && notFound.length === failed.length;
+
     let confidence: Confidence = 'MEDIUM';
     if (actionsClean && replayAgreed) confidence = 'HIGH';
     else if (!actionsClean) confidence = 'LOW';
+
+    if (allNotFound) {
+      // Downgrade hard: the element was never located, so we cannot say the
+      // product misbehaved rather than the mission describing it wrongly.
+      confidence = replayAgreed ? 'MEDIUM' : 'LOW';
+      rationale.push(
+        `Every failing assertion failed because its element could not be found, not because it held the wrong value. ` +
+          `That is equally consistent with a stale or invented target descriptor as with a real defect — ` +
+          `check the failure snapshot before treating this as a product bug.`,
+      );
+      return { failure_classification: 'INCONCLUSIVE', confidence, rationale };
+    }
 
     return { failure_classification: 'PRODUCT_DEFECT', confidence, rationale };
   }

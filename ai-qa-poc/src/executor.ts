@@ -59,6 +59,12 @@ export interface RunOptions {
   isReplay?: boolean;
   runId?: string;
   evidence?: Evidence;
+  /**
+   * Which application context to run against, e.g. "ecommerce". Without it the
+   * default context is used — which would point a second app's missions at the
+   * first app's base_url and fail in a way that looks like a product defect.
+   */
+  feature?: string;
 }
 
 function storageStatePath(ref: string): string {
@@ -319,7 +325,7 @@ export async function runMission(
   mission: TestMission,
   options: RunOptions = {},
 ): Promise<ExecutionResult> {
-  const ctx = loadAppContext();
+  const ctx = loadAppContext(options.feature);
   const baseUrl = ctx.application.base_url;
   const runId = options.runId ?? newRunId();
   const ev = options.evidence ?? new Evidence(mission.test_id, runId);
@@ -409,6 +415,7 @@ export async function runMission(
     ev.log('First run failed. Replaying once to check the result is stable.');
     const second = await runMission(mission, {
       isReplay: true,
+      feature: options.feature,
       runId: `${runId}-replay`,
       evidence: new Evidence(mission.test_id, `${runId}-replay`),
     });

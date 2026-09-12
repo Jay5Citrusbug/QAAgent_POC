@@ -1,9 +1,10 @@
 /**
  * Run approved missions.
  *
- *   npm run run-mission                 # every approved mission
- *   npm run run-mission -- SM-001       # one mission
- *   HEADED=false npm run run-mission    # headless
+ *   npm run run-mission                            # every approved mission
+ *   npm run run-mission -- SM-001                  # one mission
+ *   npm run run-mission -- --feature ecommerce     # against a second app's context
+ *   HEADED=false npm run run-mission               # headless
  *
  * Only missions in missions/approved/ with a populated approval block run. A
  * draft never executes, however valid it looks.
@@ -18,7 +19,20 @@ import { checkRequirementDrift, describeDrift } from '../src/requirement-hash.js
 import { isApproved, readMissionFile, validateMission, validateResult } from '../src/validate.js';
 import type { ExecutionResult } from '../src/types.js';
 
-const filter = process.argv[2];
+function flag(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
+  return i === -1 ? undefined : process.argv[i + 1];
+}
+
+const featureName = flag('feature');
+// The positional test id is the first bare argument — skip flag values so
+// `--feature ecommerce` is not mistaken for a mission id.
+const positional = process.argv.slice(2).filter((a, i, arr) => {
+  if (a.startsWith('--')) return false;
+  const prev = arr[i - 1];
+  return !(prev && prev.startsWith('--'));
+});
+const filter = positional[0];
 
 const files = fs.existsSync(PATHS.missionsApproved)
   ? fs
@@ -38,8 +52,8 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const ctx = loadAppContext();
-console.log(`Application : ${ctx.application.name}`);
+const ctx = loadAppContext(featureName);
+console.log(`Application : ${ctx.application.name}${featureName ? `  (--feature ${featureName})` : ''}`);
 console.log(`Environment : ${ctx.application.environment}`);
 console.log(`Base URL    : ${ctx.application.base_url}`);
 console.log(`Browser     : ${RUNTIME.browser} (${RUNTIME.headed ? 'headed' : 'headless'})`);
@@ -81,7 +95,7 @@ for (const file of files) {
     console.warn('');
   }
 
-  const raw = await runMission(mission);
+  const raw = await runMission(mission, { feature: featureName });
   const result = applyClassification(raw, mission);
   if (driftNote) result.notes.push(driftNote);
   results.push(result);
