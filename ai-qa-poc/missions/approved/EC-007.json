@@ -1,0 +1,78 @@
+{
+  "test_id": "EC-007",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature-ecommerce/requirement.md#r-1--global-navigation",
+    "quote": "A dedicated shopping cart icon to display or navigate to user selections.",
+    "content_hash": "sha256:d93f44e1b0b4bfbdddc722d0c87757eb"
+  },
+  "feature": "Control labelling sweep",
+  "module": "Navigation",
+  "capability": "Navigation.CartIcon",
+  "priority": "P1",
+  "role": "Guest",
+  "environment": "STAGE",
+  "auth": {
+    "strategy": "anonymous"
+  },
+  "starting_context": {
+    "page": "home",
+    "location": "whole page",
+    "url_hint": "/"
+  },
+  "preconditions": [
+    "STAGE is reachable and the home page loads",
+    "The sweep resolves aria-label, aria-labelledby, <label for>, wrapping labels, title, text content and child image alt before calling a control unlabelled — so a control named by any legitimate mechanism is not flagged."
+  ],
+  "test_objective": "Verify every interactive control on the home page exposes an accessible name.",
+  "expected_outcome": "succeeds",
+  "data_policy": {
+    "creates_artifacts": false
+  },
+  "actions": [
+    {
+      "action": "navigate",
+      "instruction": "Open the home page.",
+      "url": "/"
+    },
+    {
+      "action": "wait_for_state",
+      "instruction": "Wait for the page to settle.",
+      "state": "networkidle"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "A1",
+      "statement": "Every visible button and link exposes an accessible name, so it is usable with a screen reader.",
+      "check": {
+        "type": "all_controls_have_accessible_name",
+        "value": 0
+      },
+      "critical": true
+    }
+  ],
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "retain_on_failure",
+    "console": true,
+    "network": false,
+    "snapshot_on_failure": true
+  },
+  "budget": {
+    "max_steps": 6,
+    "timeout_ms": 60000,
+    "action_timeout_ms": 20000,
+    "max_discovery_attempts": 3
+  },
+  "rerun_policy": {
+    "replay_on_failure": true,
+    "on_divergence": "INCONCLUSIVE"
+  },
+  "approval": {
+    "approved_by": "jay.r",
+    "approved_at": "2026-09-12T11:36:22.612Z",
+    "edits_made": false,
+    "review_minutes": 2
+  }
+}

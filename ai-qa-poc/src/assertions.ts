@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { interpolate } from './actions.js';
 import { resolveTarget, TargetAmbiguousError, TargetNotFoundError } from './discovery.js';
 import type { LocatorCache } from './locator-cache.js';
+import { describeSweep, sweepAccessibleNames, sweepImages } from './sweeps.js';
 import type { AssertionResult, MissionAssertion } from './types.js';
 
 /**
@@ -55,6 +56,47 @@ export async function evaluateAssertion(
       result.observed = url;
       result.passed = expected !== undefined && url.includes(expected);
       if (!result.passed) result.error = `URL "${url}" does not contain "${expected}".`;
+      return result;
+    }
+
+    /**
+     * Sweeps run over every matching element, so they need no single target.
+     * An optional `within` scopes them to one region of the page.
+     */
+    if (check.type === 'all_images_loaded' || check.type === 'all_controls_have_accessible_name') {
+      // A whole-page sweep scopes to <body>; `within` narrows it to a region.
+      let scope = ctx.page.locator('body');
+      if (check.target) {
+        const resolvedScope = await resolveTarget(ctx.page, check.target, ctx.cache, {
+          timeoutMs: ctx.timeoutMs,
+          maxAttempts: ctx.maxDiscoveryAttempts,
+          runId: ctx.runId,
+        });
+        scope = resolvedScope.locator;
+      }
+
+      const outcome =
+        check.type === 'all_images_loaded'
+          ? await sweepImages(scope)
+          : await sweepAccessibleNames(scope);
+
+      // A tolerance lets a team adopt a sweep on a page with known debt
+      // without muting it entirely — the count is visible and must be chosen.
+      const allowed = expected === undefined ? 0 : Number(expected);
+      result.observed = describeSweep(check.type, outcome);
+      result.passed = outcome.offenders.length <= allowed;
+      if (!result.passed) {
+        result.error =
+          `${outcome.offenders.length} element(s) failed "${check.type}" (tolerance ${allowed}):\n` +
+          outcome.offenders.map((o) => `  - ${o.what}: ${o.detail}`).join('\n');
+      }
+      if (outcome.checked === 0) {
+        // Nothing to examine is not a pass: it usually means the scope was
+        // wrong, and silently passing would hide that.
+        result.evaluable = false;
+        result.passed = false;
+        result.error = `No elements found to sweep for "${check.type}" — check the scope.`;
+      }
       return result;
     }
 
