@@ -221,6 +221,41 @@ console.log(`  uncovered controls   ${uncovered.length}`);
 console.log('');
 console.log(`Reconciliation: ${rel(reportFile)}`);
 
+/**
+ * The same reconciliation as data.
+ *
+ * The markdown is for a human at Gate 1.5. The binding exception rate is one
+ * of the numbers that decides whether Gate 1.5 earns its place at all (§15),
+ * and a number that only exists inside prose cannot be trended across six
+ * requirements.
+ */
+const reconciliation = {
+  feature: featureName ?? 'default',
+  generated_at: new Date().toISOString(),
+  bound_against: { build: capture.build, captured_at: capture.captured_at },
+  intents_total: intents.length,
+  clean: clean.map((o) => o.intent.test_id),
+  needs_review: needsReview.map((o) => ({
+    test_id: o.intent.test_id,
+    confidence: o.confidence,
+    exceptions: o.exceptions.map((e) => ({ kind: e.kind, where: e.where })),
+  })),
+  unbindable: unbindable.map((o) => ({
+    test_id: o.intent.test_id,
+    exceptions: o.exceptions.map((e) => ({ kind: e.kind, where: e.where })),
+  })),
+  uncovered_controls: uncovered.map((u) => ({ url: u.url, role: u.control.role, name: u.control.name })),
+};
+
+const reconDir = path.join(PATHS.reports, 'reconciliation');
+fs.mkdirSync(reconDir, { recursive: true });
+fs.writeFileSync(
+  path.join(reconDir, `${featureName ?? 'default'}-${stamp}.json`),
+  `${JSON.stringify(reconciliation, null, 2)}
+`,
+  'utf8',
+);
+
 if (has('write')) {
   console.log(`Missions written: ${written}${skipped ? `, ${skipped} skipped` : ''} → missions/draft/`);
 } else {

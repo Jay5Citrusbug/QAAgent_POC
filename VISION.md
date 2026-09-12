@@ -914,7 +914,7 @@ rather than an adjective.
 | Session seeding for authenticated roles | **done** — `npm run auth` records a real sign-in |
 | Exploration findings reaching the defect pipeline | **done** — `npm run defects -- --from-exploration` |
 | Stable missions promoted to deterministic Playwright | **pending** — §9, and where the recurring saving is |
-| Classifier / human disagreement rate measured | **pending** — §13a names it; nothing computes it |
+| Classifier / human disagreement rate measured | **done** — `npm run metrics`, split into false positives and false negatives |
 | Baseline numbers captured | **pending** — [ai-qa-poc/docs/BASELINE.md](ai-qa-poc/docs/BASELINE.md) |
 | CI triggering a smoke run on a new build | not started — §18 phase 7 |
 

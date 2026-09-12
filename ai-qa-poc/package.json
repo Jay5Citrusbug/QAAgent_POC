@@ -23,6 +23,7 @@
     "bind": "tsx scripts/bind.ts",
     "defects": "tsx scripts/defects.ts",
     "coverage": "tsx scripts/coverage.ts",
+    "metrics": "tsx scripts/metrics.ts",
     "report": "tsx scripts/report.ts",
     "browsers": "playwright install chromium",
     "auth": "tsx scripts/auth.ts",

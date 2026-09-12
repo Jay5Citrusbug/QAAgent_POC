@@ -93,6 +93,10 @@ for (const decision of ['confirm', 'reject'] as const) {
     decision: decision === 'confirm' ? 'Confirmed as a product defect.' : 'Not a product defect.',
     ...(arg('note') ? { note: arg('note') } : {}),
     ...(arg('ticket') ? { ticket: arg('ticket') } : {}),
+    // Gate 2 minutes matter as much as Gate 1's. A run producing four
+    // INCONCLUSIVE results and forty minutes of investigation has cost more
+    // than doing it by hand, and nothing else records that.
+    ...(arg('minutes') ? { review_minutes: Number(arg('minutes')) } : {}),
   };
 
   fs.writeFileSync(file, `${JSON.stringify(d, null, 2)}\n`, 'utf8');
