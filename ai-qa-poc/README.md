@@ -115,6 +115,13 @@ a stale capture is worse than none, because it gets believed.
 
 ### Then: generate
 
+> **Cost note.** The `web/` UI calls the Anthropic API and is billed per token
+> **on top of** any Claude subscription you already have. If you hold a Claude
+> seat, use it instead — see [docs/NO-EXTRA-COST.md](docs/NO-EXTRA-COST.md).
+> Either route produces identical artifacts; execution itself has never used a
+> model and costs nothing per run.
+
+
 ```bash
 npm run think              # assemble the prompt pack
 npm run think -- --copy    # ...and copy it to the clipboard
@@ -348,7 +355,7 @@ missions/approved/               Gate 1 passed — the only thing that runs
 runs/                            evidence, one directory per run
 reports/                         Markdown summaries for Gate 2
 schemas/                         the two contracts, authoritative
-scripts/                         inspect · think · validate · approve · run-mission · coverage · report
+scripts/                         new-feature · inspect · think · import · validate · approve · run-mission · coverage · report
 src/                             the Execution Agent
 docs/BASELINE.md                 the KPI measurement, filled in by hand
 ```

@@ -12,6 +12,7 @@
     "new-feature": "tsx scripts/new-feature.ts",
     "inspect": "tsx scripts/inspect.ts",
     "think": "tsx scripts/think.ts",
+    "import": "tsx scripts/import.ts",
     "validate": "tsx scripts/validate.ts",
     "approve": "tsx scripts/approve.ts",
     "run-mission": "tsx scripts/run.ts",
