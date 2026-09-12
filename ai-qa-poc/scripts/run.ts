@@ -25,12 +25,20 @@ function flag(name: string): string | undefined {
 }
 
 const featureName = flag('feature');
-// The positional test id is the first bare argument — skip flag values so
-// `--feature ecommerce` is not mistaken for a mission id.
+
+/**
+ * Boolean flags take no value. Without this list the token after `--headless`
+ * gets swallowed as its value, so `--headless EC-001` silently runs every
+ * mission instead of the one asked for.
+ */
+const BOOLEAN_FLAGS = new Set(['headless', 'headed', 'copy', 'stdout']);
+
 const positional = process.argv.slice(2).filter((a, i, arr) => {
   if (a.startsWith('--')) return false;
   const prev = arr[i - 1];
-  return !(prev && prev.startsWith('--'));
+  if (!prev || !prev.startsWith('--')) return true;
+  // Previous token was a flag: this is its value only if that flag takes one.
+  return BOOLEAN_FLAGS.has(prev.slice(2));
 });
 const filter = positional[0];
 

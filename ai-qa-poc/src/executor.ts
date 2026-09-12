@@ -7,6 +7,7 @@ import { loadAppContext, PATHS, rel, RUNTIME } from './config.js';
 import { describeCandidates, TargetAmbiguousError, TargetNotFoundError } from './discovery.js';
 import { Evidence, newRunId } from './evidence.js';
 import { LocatorCache } from './locator-cache.js';
+import { Observer } from './observer.js';
 import type {
   AssertionResult,
   ExecutionResult,
@@ -106,6 +107,7 @@ async function runAttempt(
   runId: string,
   baseUrl: string,
   isReplay: boolean,
+  observer?: Observer,
 ): Promise<Attempt> {
   const startedAt = Date.now();
   const steps: StepRecord[] = [];
@@ -175,6 +177,7 @@ async function runAttempt(
     }
 
     stepsUsed += 1;
+    observer?.setStep(i + 1);
     ev.log(`Step ${i + 1}/${mission.actions.length}: ${action.action} — ${action.instruction}`);
 
     // `verify` is evaluated here because the executor owns the assertion map.
@@ -348,6 +351,7 @@ export async function runMission(
   let context: BrowserContext | undefined;
   let page: Page | undefined;
   let attempt: Attempt | undefined;
+  let observer: Observer | undefined;
   let replay: ExecutionResult['replay'];
   let fatal: { kind: FailureKind; message: string } | undefined;
 
@@ -373,7 +377,15 @@ export async function runMission(
       });
     }
 
-    attempt = await runAttempt(mission, page, cache, ev, runId, baseUrl, options.isReplay ?? false);
+    // Watch the whole run for problems the mission never asked about. This
+    // never influences PASS/FAIL — it is a separate bug list, the way an
+    // experienced tester notices a broken logo while testing the cart.
+    observer = new Observer(page);
+    observer.start();
+
+    attempt = await runAttempt(mission, page, cache, ev, runId, baseUrl, options.isReplay ?? false, observer);
+
+    await observer.sweepPage();
 
     // Evidence on failure. Cheap on the happy path, thorough when it matters.
     const failed = attempt.status !== 'PASS';
@@ -512,6 +524,10 @@ export async function runMission(
       exceeded: attempt?.budgetExceeded ?? false,
     },
     artifacts_left_behind: artifacts,
+    // Separate from assertion_results on purpose: these are things nobody
+    // asked about, and folding them into the mission's verdict would make
+    // both the verdict and the findings less trustworthy.
+    incidental_findings: observer?.list() ?? [],
     // Filled in by the classifier pass — never here.
     failure_classification: null,
     classification_source: 'none',

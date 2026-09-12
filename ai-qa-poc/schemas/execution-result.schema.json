@@ -173,6 +173,24 @@
       "description": "[R2] What this run created on STAGE and did not remove. Manual cleanup in POC-1, but never invisible."
     },
 
+    "incidental_findings": {
+      "type": "array",
+      "description": "Problems observed during the run that the mission never asked about - console errors, HTTP failures, broken images, unlabelled controls. An experienced QA notices these while testing something else. They NEVER change the mission's status: the mission asked one question and deserves one answer. They are reported as their own bug list.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "kind": { "type": "string" },
+          "severity": { "type": "string", "enum": ["high", "medium", "low"] },
+          "summary": { "type": "string" },
+          "detail": { "type": "string" },
+          "url": { "type": "string" },
+          "count": { "type": "integer" },
+          "first_seen_step": { "type": "integer" }
+        }
+      }
+    },
+
     "failure_classification": {
       "type": ["string", "null"],
       "enum": ["PRODUCT_DEFECT", "AGENT_EXECUTION_FAILURE", "ENVIRONMENT_FAILURE", "TEST_DATA_FAILURE", "INCONCLUSIVE", null],

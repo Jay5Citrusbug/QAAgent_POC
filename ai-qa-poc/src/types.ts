@@ -251,6 +251,20 @@ export interface ExecutionResult {
     exceeded?: boolean;
   };
   artifacts_left_behind?: string[];
+  /**
+   * Things noticed during the run that the mission never asked about.
+   * Deliberately separate from assertion results: these never change
+   * PASS/FAIL, they are their own bug list.
+   */
+  incidental_findings?: {
+    kind: string;
+    severity: string;
+    summary: string;
+    detail?: string;
+    url?: string;
+    count: number;
+    first_seen_step?: number;
+  }[];
   failure_classification: FailureClassification | null;
   classification_source?: 'classifier' | 'human' | 'none';
   classification_rationale?: string[];

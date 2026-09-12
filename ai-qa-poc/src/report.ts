@@ -44,6 +44,15 @@ export function buildReport(results: ExecutionResult[]): string {
   }
   lines.push('');
 
+  const findingCount = results.reduce((n, r) => n + (r.incidental_findings?.length ?? 0), 0);
+  if (findingCount > 0) {
+    lines.push(
+      `> **${findingCount} incidental finding(s)** were observed that no test case covers — see the section below. ` +
+        `A run can be all-green and still have left these behind.`,
+    );
+    lines.push('');
+  }
+
   lines.push('## Results');
   lines.push('');
   lines.push('| Test | Status | Classification | Confidence | Objective |');
@@ -141,6 +150,75 @@ export function buildReport(results: ExecutionResult[]): string {
     );
     lines.push('');
     for (const a of leftovers) lines.push(`* ${a}`);
+    lines.push('');
+  }
+
+  /**
+   * Incidental findings get their own section, aggregated across every
+   * mission. These are problems nobody wrote a test for — the report would be
+   * dishonest without them, and dishonest in the worst direction: it would
+   * read as "all green" while the page was throwing exceptions.
+   */
+  const findingMap = new Map<string, { f: NonNullable<ExecutionResult['incidental_findings']>[number]; seenIn: Set<string> }>();
+  // Specificity decides which wording survives a merge: "image failed to load"
+  // tells a human more than the console echo of the same 404.
+  const SPECIFICITY: Record<string, number> = {
+    page_exception: 0,
+    broken_image: 1,
+    http_error: 2,
+    request_failed: 3,
+    console_error: 4,
+    unlabelled_control: 5,
+  };
+  for (const r of results) {
+    for (const f of r.incidental_findings ?? []) {
+      // Key on the resource when there is one, so the same broken file
+      // reported by different missions and different signals collapses to a
+      // single row. Ten rows for one missing PNG is how a findings list
+      // becomes something people scroll past.
+      const url = /https?:\/\/[^\s)'"]+/.exec(f.detail ?? '')?.[0];
+      const key = url ?? `${f.kind}|${f.summary}|${f.detail ?? ''}`;
+      const entry = findingMap.get(key);
+      if (entry) {
+        entry.f.count += f.count;
+        entry.seenIn.add(r.test_id);
+        if ((SPECIFICITY[f.kind] ?? 9) < (SPECIFICITY[entry.f.kind] ?? 9)) {
+          entry.f.kind = f.kind;
+          entry.f.summary = f.summary;
+          entry.f.detail = f.detail;
+        }
+      } else {
+        findingMap.set(key, { f: { ...f }, seenIn: new Set([r.test_id]) });
+      }
+    }
+  }
+
+  if (findingMap.size > 0) {
+    const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
+    const all = [...findingMap.values()].sort(
+      (a, b) => (order[a.f.severity] ?? 3) - (order[b.f.severity] ?? 3),
+    );
+
+    lines.push('## Incidental findings — not part of any test case');
+    lines.push('');
+    lines.push(
+      `${all.length} problem(s) were observed while running the missions above. **None of them changed any mission's result** — ` +
+        'a mission answers the one question it was given. These are what the run noticed along the way, the way a tester ' +
+        'notices a broken image while checking something else.',
+    );
+    lines.push('');
+    lines.push('| Severity | What | Where | Seen in | Times |');
+    lines.push('|---|---|---|---|---|');
+    for (const { f, seenIn } of all) {
+      const what = escapePipes(`${f.summary}${f.detail ? ` — ${f.detail}` : ''}`);
+      lines.push(
+        `| ${f.severity.toUpperCase()} | ${what} | ${escapePipes(f.url ?? '')} | ${[...seenIn].join(', ')} | ${f.count} |`,
+      );
+    }
+    lines.push('');
+    lines.push(
+      '_Each of these is a candidate bug for a human to confirm. Nothing here has been filed._',
+    );
     lines.push('');
   }
 
