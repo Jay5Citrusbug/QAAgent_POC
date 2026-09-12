@@ -149,6 +149,15 @@ export interface RunInput {
   effort: string;
   requirement: string;
   appContextYaml?: string;
+  /**
+   * Repo-relative path of the file this requirement came from, e.g.
+   * "input/feature-ecommerce/requirement.md". Without it the agent guesses,
+   * and every mission ends up citing the wrong requirement — which makes the
+   * traceability claim worse than useless, because it looks satisfied.
+   */
+  requirementPath?: string;
+  /** Suggested test_id prefix, to keep one feature's ids from colliding with another's. */
+  idPrefix?: string;
   /** Prior turns, so phase 2 sees the analysis and the human's answers. */
   history: Anthropic.MessageParam[];
 }
@@ -164,13 +173,26 @@ export async function runAgent(input: RunInput): Promise<RunOutput> {
   const anthropic = client();
   const system = buildSystemPrompt(input.appContextYaml);
 
+  // Told to the agent in both phases: phase 1 records it in the analysis,
+  // phase 2 needs it for every mission's requirement_ref.
+  const provenance = [
+    input.requirementPath
+      ? `The requirement below is stored at "${input.requirementPath}". Use exactly that path as requirement_ref.locator (you may append a #section anchor). Do not cite any other file.`
+      : `No source file path was supplied for this requirement. Set requirement_ref.source to "CHAT_TRANSCRIPT" and say plainly in your notes that the requirement is not yet committed to a file, so results cannot be traced back to it.`,
+    input.idPrefix
+      ? `Number every mission with the prefix "${input.idPrefix}", starting at ${input.idPrefix}-001. Ids from other features already exist; reusing them would overwrite real work.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   const userTurn: Anthropic.MessageParam =
     input.phase === 'analyze'
       ? {
           role: 'user',
-          content: `${ANALYZE_INSTRUCTION}\n\n---\n\n# Requirement under test\n\n${input.requirement}`,
+          content: `${ANALYZE_INSTRUCTION}\n\n---\n\n${provenance}\n\n# Requirement under test\n\n${input.requirement}`,
         }
-      : { role: 'user', content: GENERATE_INSTRUCTION };
+      : { role: 'user', content: `${GENERATE_INSTRUCTION}\n\n---\n\n${provenance}` };
 
   const messages = [...input.history, userTurn];
 

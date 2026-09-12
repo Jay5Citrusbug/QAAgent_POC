@@ -36,6 +36,8 @@ export default function Page() {
   const [effort, setEffort] = useState('high');
   const [featureId, setFeatureId] = useState('');
   const [featureSlug, setFeatureSlug] = useState('');
+  const [idPrefix, setIdPrefix] = useState('');
+  const [conflicts, setConflicts] = useState<{ testId: string; existingObjective: string; where: string }[]>([]);
   const [features, setFeatures] = useState<{ id: string; label: string }[]>([]);
 
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -80,7 +82,7 @@ export default function Page() {
     setBusy(true);
     setStage('analyzing');
     try {
-      const d = await call('/api/think', { phase: 'analyze', model, effort, requirement, featureId });
+      const d = await call('/api/think', { phase: 'analyze', model, effort, requirement, featureId, idPrefix });
       setAnalysis(d.result);
       setHistory(d.history);
       setUsage(d.usage);
@@ -104,6 +106,7 @@ export default function Page() {
         model,
         effort,
         history,
+        idPrefix,
         questions: analysis?.questions ?? [],
         answers,
       });
@@ -121,15 +124,29 @@ export default function Page() {
     }
   }
 
-  async function saveAll() {
+  async function saveAll(overwrite = false) {
     setError('');
     setBusy(true);
+    if (overwrite) setConflicts([]);
     try {
-      const d = await call('/api/save', {
-        featureSlug: featureSlug || featureId || 'analysis',
-        analysisMarkdown: analysis?.analysisMarkdown ?? '',
-        missions,
+      const res = await fetch('/api/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          featureSlug: featureSlug || featureId || 'analysis',
+          analysisMarkdown: analysis?.analysisMarkdown ?? '',
+          missions,
+          overwrite,
+        }),
       });
+      const d = await res.json();
+      if (res.status === 409) {
+        // Never clobber silently — show what would be lost and let the human decide.
+        setConflicts(d.conflicts ?? []);
+        setError(d.error ?? 'Mission ids already exist.');
+        return;
+      }
+      if (!res.ok) throw new Error(d.error ?? `Request failed (${res.status})`);
       setSaved(d.written ?? []);
       if (d.rejected?.length) {
         setError(
@@ -218,7 +235,31 @@ export default function Page() {
               {features.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
             </select>
           </div>
+          <div>
+            <label htmlFor="prefix">Test ID prefix</label>
+            <input
+              id="prefix"
+              value={idPrefix}
+              onChange={(e) => setIdPrefix(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4))}
+              placeholder="EC"
+              disabled={stage !== 'input'}
+            />
+          </div>
         </div>
+
+        {!featureId && (
+          <div className="alert warn" style={{ marginTop: 14 }}>
+            No application context selected. The agent will have nothing but the requirement text to go on, so it is
+            far more likely to assume UI that may not exist. Pick a context if one fits this feature.
+          </div>
+        )}
+        {!idPrefix && (
+          <div className="alert warn" style={{ marginTop: 14 }}>
+            No test ID prefix set — the agent will pick its own, and a fresh run starts numbering at 001 again.
+            If those ids already exist, saving will stop and ask rather than overwrite. Set a prefix per feature
+            (<code>EC</code> for e-commerce, <code>WP</code> for WorkPod) to avoid the collision entirely.
+          </div>
+        )}
         <div style={{ marginTop: 16 }}>
           <button onClick={start} disabled={busy || stage !== 'input' || !requirement.trim()}>
             {stage === 'analyzing' ? <><span className="spinner" />Analysing…</> : 'Start analysis'}
@@ -327,8 +368,28 @@ export default function Page() {
           </div>
 
           <div style={{ marginTop: 16 }}>
-            <button onClick={saveAll} disabled={busy}>Save analysis + drafts to disk</button>
+            <button onClick={() => saveAll(false)} disabled={busy}>Save analysis + drafts to disk</button>
           </div>
+
+          {conflicts.length > 0 && (
+            <div className="alert bad" style={{ marginTop: 14 }}>
+              <strong>These ids already exist. Saving would replace real work:</strong>
+              <ul style={{ margin: '8px 0 10px', paddingLeft: 18 }}>
+                {conflicts.map((c) => (
+                  <li key={`${c.where}-${c.testId}`}>
+                    <code>{c.testId}</code> in <em>{c.where}</em> — &ldquo;{c.existingObjective}&rdquo;
+                  </li>
+                ))}
+              </ul>
+              <p style={{ margin: '0 0 10px' }}>
+                Best fix: set a different Test ID prefix above and regenerate. Overwrite only if you are certain the
+                existing missions are obsolete — this cannot be undone unless they are committed to git.
+              </p>
+              <button className="secondary" onClick={() => saveAll(true)} disabled={busy}>
+                Overwrite anyway
+              </button>
+            </div>
+          )}
 
           {saved.length > 0 && (
             <>

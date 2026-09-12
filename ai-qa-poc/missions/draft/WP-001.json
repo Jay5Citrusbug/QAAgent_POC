@@ -1,0 +1,136 @@
+{
+  "test_id": "WP-001",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature/requirement.md#r-1--create-a-workpod",
+    "quote": "An Admin can create a WorkPod from the WorkPods area. The new WorkPod is created and appears in the WorkPods list."
+  },
+
+  "feature": "WorkPod creation",
+  "module": "WorkPod",
+  "capability": "WorkPod.Create",
+  "priority": "P0",
+  "role": "Admin",
+  "environment": "STAGE",
+
+  "auth": {
+    "strategy": "storage_state",
+    "storage_state_ref": "admin"
+  },
+
+  "starting_context": {
+    "page": "workpods",
+    "location": "WorkPods list",
+    "url_hint": "/workpods"
+  },
+
+  "preconditions": [
+    "A seeded Admin session exists at .auth/admin.json",
+    "STAGE is reachable and the WorkPods area loads"
+  ],
+
+  "test_objective": "Verify that an Admin can create a WorkPod.",
+  "expected_outcome": "succeeds",
+
+  "data_policy": {
+    "creates_artifacts": true,
+    "naming_pattern": "AI QA POC {run_id}",
+    "cleanup": "best_effort",
+    "cleanup_instruction": "Delete the WorkPod named 'AI QA POC <run_id>'. Anything prefixed 'AI QA POC' on STAGE is safe to bulk delete."
+  },
+
+  "actions": [
+    {
+      "action": "navigate",
+      "instruction": "Open the WorkPods area.",
+      "url": "/workpods"
+    },
+    {
+      "action": "click",
+      "instruction": "Start creating a new WorkPod.",
+      "target": {
+        "description": "Button that opens the create-WorkPod dialog",
+        "capability_key": "workpod.create",
+        "role": "button",
+        "name": "New WorkPod"
+      }
+    },
+    {
+      "action": "fill",
+      "instruction": "Enter the WorkPod name.",
+      "target": {
+        "description": "WorkPod name field in the create dialog",
+        "capability_key": "workpod.name_field",
+        "role": "textbox",
+        "name": "Name"
+      },
+      "value": "AI QA POC {run_id}"
+    },
+    {
+      "action": "click",
+      "instruction": "Submit the create-WorkPod dialog.",
+      "target": {
+        "description": "Create button in the create-WorkPod dialog",
+        "capability_key": "workpod.create_submit",
+        "role": "button",
+        "name": "Create",
+        "exact": true
+      }
+    },
+    {
+      "action": "wait_for_state",
+      "instruction": "Wait for the page to settle after submitting.",
+      "state": "networkidle"
+    }
+  ],
+
+  "assertions": [
+    {
+      "id": "A1",
+      "statement": "The create-WorkPod dialog closes, indicating the WorkPod was created.",
+      "check": {
+        "type": "not_visible",
+        "target": {
+          "description": "Create-WorkPod dialog",
+          "role": "dialog",
+          "name": "New WorkPod"
+        }
+      },
+      "critical": true
+    },
+    {
+      "id": "A2",
+      "statement": "The WorkPod named 'AI QA POC <run_id>' is visible in the WorkPods list.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "WorkPod list entry for the WorkPod just created",
+          "role": "link",
+          "name": "AI QA POC {run_id}",
+          "exact": true
+        }
+      },
+      "critical": true
+    }
+  ],
+
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "retain_on_failure",
+    "console": true,
+    "network": false,
+    "snapshot_on_failure": true
+  },
+
+  "budget": {
+    "max_steps": 12,
+    "timeout_ms": 120000,
+    "action_timeout_ms": 15000,
+    "max_discovery_attempts": 3
+  },
+
+  "rerun_policy": {
+    "replay_on_failure": true,
+    "on_divergence": "INCONCLUSIVE"
+  }
+}

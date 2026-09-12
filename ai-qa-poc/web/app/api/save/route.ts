@@ -24,11 +24,59 @@ export async function POST(request: Request) {
       featureSlug?: string;
       analysisMarkdown?: string;
       missions?: Record<string, unknown>[];
+      /** Set only after the human has seen the conflict list and agreed. */
+      overwrite?: boolean;
     };
 
     ensureDirs();
     const written: string[] = [];
     const rejected: { testId: string; errors: string[] }[] = [];
+
+    /**
+     * Refuse to clobber existing missions.
+     *
+     * Test ids come from model output, and a fresh run happily starts at 001
+     * again — so a second feature's missions will collide with the first
+     * feature's unless something stops them. An overwritten mission is
+     * unrecoverable if it was never committed, and it fails silently: the file
+     * is still there, still valid, just describing a different test than the
+     * one that was approved.
+     */
+    if (body.missions?.length && !body.overwrite) {
+      const conflicts: { testId: string; existingObjective: string; where: string }[] = [];
+      for (const mission of body.missions) {
+        const testId = String(mission.test_id ?? '');
+        if (!/^[A-Z]{2,4}-[0-9]{3}$/.test(testId)) continue;
+        for (const [dir, label] of [
+          [P.missionsDraft, 'draft'],
+          [P.missionsApproved, 'approved'],
+        ] as const) {
+          const candidate = path.join(dir, `${testId}.json`);
+          if (!fs.existsSync(candidate)) continue;
+          let existingObjective = '(unreadable)';
+          try {
+            existingObjective = String(
+              (JSON.parse(fs.readFileSync(candidate, 'utf8')) as { test_objective?: string }).test_objective ?? '',
+            );
+          } catch {
+            /* keep the placeholder */
+          }
+          conflicts.push({ testId, existingObjective, where: label });
+        }
+      }
+
+      if (conflicts.length > 0) {
+        return NextResponse.json(
+          {
+            conflicts,
+            error:
+              `${conflicts.length} mission id(s) already exist and would be overwritten. ` +
+              `Renumber the new missions (a different prefix per feature, e.g. EC-001) or confirm the overwrite.`,
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     if (body.analysisMarkdown?.trim()) {
       const slug = body.featureSlug?.trim() || 'analysis';

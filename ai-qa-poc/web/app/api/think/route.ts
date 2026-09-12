@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import fs from 'node:fs';
 import { answersTurn, runAgent, type ClarifyingQuestion } from '@/lib/agent';
 import { configuredDefault, estimateCost, isAllowedModel } from '@/lib/models';
-import { listFeatures } from '@/lib/paths';
+import path from 'node:path';
+import { listFeatures, PROJECT_ROOT } from '@/lib/paths';
 
 export const runtime = 'nodejs';
 // Every call costs real money and takes real time — never cached.
@@ -25,6 +26,8 @@ export async function POST(request: Request) {
       effort?: string;
       requirement?: string;
       featureId?: string;
+      requirementPath?: string;
+      idPrefix?: string;
       history?: unknown[];
       questions?: ClarifyingQuestion[];
       answers?: Record<string, string>;
@@ -42,12 +45,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Paste a requirement first.' }, { status: 400 });
     }
 
-    // Load the chosen feature's application context, if one was picked.
+    // Load the chosen feature's application context, if one was picked, and
+    // work out where its requirement lives so missions cite the right file.
     let appContextYaml: string | undefined;
+    let requirementPath = body.requirementPath;
     if (body.featureId) {
       const feature = listFeatures().find((f) => f.id === body.featureId);
       if (feature && fs.existsSync(feature.contextFile)) {
         appContextYaml = fs.readFileSync(feature.contextFile, 'utf8');
+      }
+      if (!requirementPath) {
+        const dir = body.featureId === 'default' ? 'feature' : `feature-${body.featureId}`;
+        const candidate = path.join('input', dir, 'requirement.md');
+        // Only claim a path that actually exists — a confident citation of a
+        // missing file is worse than admitting there isn't one.
+        if (fs.existsSync(path.join(PROJECT_ROOT, candidate))) {
+          requirementPath = candidate.split(path.sep).join('/');
+        }
       }
     }
 
@@ -64,6 +78,8 @@ export async function POST(request: Request) {
       effort,
       requirement: body.requirement ?? '',
       appContextYaml,
+      requirementPath,
+      idPrefix: body.idPrefix,
       history,
     });
 
