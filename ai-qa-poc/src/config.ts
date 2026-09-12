@@ -106,10 +106,22 @@ export function loadThinkingConfig(): ThinkingConfig {
   };
 }
 
+/**
+ * Flags are read from argv as well as the environment, because
+ * `HEADED=false cmd` is bash syntax that PowerShell rejects outright — and
+ * this project runs on Windows. `--headless` works the same everywhere.
+ */
+const argvHas = (flag: string): boolean => process.argv.includes(`--${flag}`);
+
+function argvValue(flag: string): string | undefined {
+  const i = process.argv.indexOf(`--${flag}`);
+  return i === -1 ? undefined : process.argv[i + 1];
+}
+
 export const RUNTIME = {
   /** Headed by default: for a POC, watching it work is most of the value. */
-  headed: process.env.HEADED !== 'false',
-  slowMo: Number(process.env.SLOW_MO ?? 0),
+  headed: argvHas('headless') ? false : argvHas('headed') ? true : process.env.HEADED !== 'false',
+  slowMo: Number(argvValue('slow-mo') ?? process.env.SLOW_MO ?? 0),
   build: process.env.BUILD ?? 'unknown',
   /** Kept for the eventual second browser; POC-1 is Chromium only. */
   browser: 'chromium' as const,
