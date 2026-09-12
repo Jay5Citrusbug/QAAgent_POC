@@ -911,8 +911,8 @@ rather than an adjective.
 | Gates that refuse rather than warn (1, 1.5, 2) | **done** |
 | Evidence sufficient to review without re-running | **done** |
 | Defect reports with fingerprint deduplication | **done** |
-| Session seeding for authenticated roles | **pending** — §16 assumes it; nothing creates it |
-| Exploration findings reaching the defect pipeline | **pending** |
+| Session seeding for authenticated roles | **done** — `npm run auth` records a real sign-in |
+| Exploration findings reaching the defect pipeline | **done** — `npm run defects -- --from-exploration` |
 | Stable missions promoted to deterministic Playwright | **pending** — §9, and where the recurring saving is |
 | Classifier / human disagreement rate measured | **pending** — §13a names it; nothing computes it |
 | Baseline numbers captured | **pending** — [ai-qa-poc/docs/BASELINE.md](ai-qa-poc/docs/BASELINE.md) |

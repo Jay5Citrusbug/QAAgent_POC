@@ -269,6 +269,27 @@ const CHECK_FOR: Record<Observable, { type: CheckType; needsValue: boolean; appr
 
 // --- The bind ----------------------------------------------------------------
 
+/**
+ * How this role gets a session, decided from the application context.
+ *
+ * The executor defaults a missing `auth` block to `storage_state`, so a bound
+ * mission without one demands a seeded session for every role — including roles
+ * on applications that have no login at all. The first mission the binder ever
+ * produced had exactly this bug: a storefront with no sign-in, a Guest role, and
+ * a mission that would have failed with "no seeded session" and looked like an
+ * environment problem.
+ *
+ * The convention is already established by the context files: a role with a
+ * `storage_state_ref` authenticates, a role without one is anonymous. Read it
+ * rather than guessing from the role's name — "Guest" is anonymous on one
+ * product and a seeded limited account on another.
+ */
+function resolveAuth(role: string, ctx: AppContext): TestMission['auth'] {
+  const declared = (ctx.roles ?? []).find((r) => r.name.toLowerCase() === role.toLowerCase());
+  const ref = declared?.storage_state_ref;
+  return ref ? { strategy: 'storage_state', storage_state_ref: ref } : { strategy: 'anonymous' };
+}
+
 function resolveRole(intent: TestIntent, ctx: AppContext): { role: string; exception?: BindingException } {
   const roles = (ctx.roles ?? []).map((r) => r.name);
   const actor = intent.actor.toLowerCase();
@@ -495,6 +516,7 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
     capability: intent.capability,
     priority: intent.priority,
     role,
+    auth: resolveAuth(role, ctx),
     environment: 'STAGE',
     starting_context: {
       page: startPage ? new URL(startPage.url).pathname : '/',

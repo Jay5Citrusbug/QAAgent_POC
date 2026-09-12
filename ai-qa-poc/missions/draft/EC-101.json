@@ -11,6 +11,9 @@
   "capability": "Catalogue.Filter",
   "priority": "P1",
   "role": "Guest",
+  "auth": {
+    "strategy": "anonymous"
+  },
   "environment": "STAGE",
   "starting_context": {
     "page": "/",
@@ -93,7 +96,7 @@
   },
   "binding": {
     "intent_ref": "EC-101",
-    "bound_at": "2026-09-12T14:19:43.202Z",
+    "bound_at": "2026-09-12T14:46:47.528Z",
     "bound_against": {
       "build": "unknown",
       "captured_at": "2026-09-12T14:16:28.827Z",
@@ -104,16 +107,8 @@
       {
         "kind": "approximated",
         "where": "O1",
-        "summary": "\"Only products belonging to Electronics remain listed.\" was bound to a visible check on button \"Electronics\" (in main) — the closest thing available, not a faithful check.",
-        "resolved_by": "jay.r",
-        "resolution": "Reviewed and accepted at Gate 1.5."
+        "summary": "\"Only products belonging to Electronics remain listed.\" was bound to a visible check on button \"Electronics\" (in main) — the closest thing available, not a faithful check."
       }
     ]
-  },
-  "approval": {
-    "approved_by": "jay.r",
-    "approved_at": "2026-09-12T14:19:55.917Z",
-    "edits_made": false,
-    "review_minutes": 3
   }
 }
