@@ -244,11 +244,24 @@ export function renderReality(pages: PageReality[]): string {
       out.push('');
     }
 
-    out.push('### Controls present');
+    const CONTROL_LIMIT = 60;
+    const shown = p.controls.slice(0, CONTROL_LIMIT);
+    out.push(`### Controls present (${shown.length} of ${p.controls.length} distinct names)`);
     out.push('');
+    if (p.controls.length > CONTROL_LIMIT) {
+      // Silent truncation would be worse than no list at all: a control missing
+      // from the table would read as "does not exist" when it was merely cut.
+      out.push(
+        `**This list is truncated.** ${p.controls.length - CONTROL_LIMIT} further control name(s) exist on ` +
+          `this page and are not shown. Absence from this table is therefore NOT evidence that a control ` +
+          `is missing — only the "Not present on this page" section below carries that meaning, because ` +
+          `those were each checked explicitly.`,
+      );
+      out.push('');
+    }
     out.push('| role | name | count | region |');
     out.push('|---|---|---:|---|');
-    for (const c of p.controls.slice(0, 60)) {
+    for (const c of shown) {
       out.push(`| ${c.role} | ${c.name || '**_(no accessible name)_**'} | ${c.count} | ${c.regions.join(', ')} |`);
     }
     out.push('');

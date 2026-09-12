@@ -69,13 +69,39 @@ const observed = readIfPresent(
 const idPrefix = arg('prefix');
 const history = renderHistory(buildHistory(idPrefix));
 
-// A worked example does more for schema-valid output than another page of rules.
-// Prefer a real approved mission; fall back to the draft.
-const exampleFile = [
-  path.join(PATHS.missionsApproved, 'SM-001.json'),
-  path.join(PATHS.missionsDraft, 'SM-001.json'),
-].find((f) => fs.existsSync(f));
+const exampleFile = pickExample(idPrefix);
 const example = exampleFile ? fs.readFileSync(exampleFile, 'utf8').trim() : undefined;
+
+/**
+ * A worked example does more for schema-valid output than another page of
+ * rules. Prefer one from THIS feature — an example from another product
+ * teaches the agent that product's vocabulary, which is how a fresh project
+ * ends up with missions about somebody else's checkout flow.
+ *
+ * Order: an approved mission sharing this feature's id prefix, then any
+ * approved mission, then the neutral reference example.
+ */
+function pickExample(prefix?: string): string | undefined {
+  const approved = fs.existsSync(PATHS.missionsApproved)
+    ? fs.readdirSync(PATHS.missionsApproved).filter((f) => f.endsWith('.json')).sort()
+    : [];
+
+  const neutral = path.join(PATHS.thinking, 'EXAMPLE_MISSION.json');
+
+  if (prefix) {
+    // An explicit prefix means this is its own feature. If it has no approved
+    // mission yet, show the neutral reference rather than another product's —
+    // borrowing a real mission would teach this feature that product's
+    // vocabulary, which is how a fresh project ends up with missions about
+    // somebody else's checkout.
+    const sameFeature = approved.find((f) => f.toUpperCase().startsWith(`${prefix.toUpperCase()}-`));
+    if (sameFeature) return path.join(PATHS.missionsApproved, sameFeature);
+    return fs.existsSync(neutral) ? neutral : undefined;
+  }
+
+  if (approved[0]) return path.join(PATHS.missionsApproved, approved[0]);
+  return fs.existsSync(neutral) ? neutral : undefined;
+}
 
 if (!requirement) {
   console.warn(`! ${rel(path.join(feature.requirementDir, 'requirement.md'))} is empty or missing — the pack will be thin.\n`);

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "new-feature": "tsx scripts/new-feature.ts",
     "inspect": "tsx scripts/inspect.ts",
     "think": "tsx scripts/think.ts",
     "validate": "tsx scripts/validate.ts",

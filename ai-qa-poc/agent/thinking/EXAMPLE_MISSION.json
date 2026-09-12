@@ -1,0 +1,100 @@
+{
+  "_comment": "A deliberately domain-neutral example, used in the prompt pack when the project has no approved mission of its own to show. It demonstrates the SHAPE of a valid mission - semantic targets, a scoped assertion, a machine-checkable check paired with a human statement - without teaching the agent anything about a particular product. Replace nothing here; it is a reference, not a template to copy literally.",
+
+  "test_id": "XX-001",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature/requirement.md#section-anchor",
+    "quote": "The sentence from the requirement that this mission verifies."
+  },
+
+  "feature": "Name of the feature area",
+  "module": "Module from the application context",
+  "capability": "Module.Capability",
+  "priority": "P0",
+  "role": "A role listed in the application context",
+  "environment": "STAGE",
+
+  "auth": { "strategy": "anonymous" },
+
+  "starting_context": {
+    "page": "page key from the application context",
+    "location": "where on that page the mission starts",
+    "url_hint": "/path"
+  },
+
+  "preconditions": [
+    "State that must already hold. An unmet precondition is BLOCKED, never FAIL.",
+    "Record any assumption the mission depends on, so a reviewer can challenge it."
+  ],
+
+  "test_objective": "One sentence, one objective. If it needs the word 'and', it is probably two missions.",
+  "expected_outcome": "succeeds",
+
+  "coverage": { "category": "functional", "execution_mode": "automated" },
+
+  "data_policy": {
+    "creates_artifacts": true,
+    "naming_pattern": "QA {run_id}",
+    "cleanup": "best_effort",
+    "cleanup_instruction": "How a human removes what this mission created."
+  },
+
+  "actions": [
+    { "action": "navigate", "instruction": "Open the starting page.", "url": "/path" },
+    {
+      "action": "click",
+      "instruction": "Describe the step in the words a tester would use.",
+      "target": {
+        "description": "What the element is, in plain language",
+        "role": "button",
+        "name": "Accessible name exactly as the page exposes it",
+        "within": {
+          "description": "Scope it when the same name appears elsewhere on the page",
+          "role": "navigation"
+        }
+      }
+    },
+    {
+      "action": "fill",
+      "instruction": "Enter a run-scoped value so re-runs never collide.",
+      "target": { "description": "The input field", "role": "textbox", "name": "Field label" },
+      "value": "QA {run_id}"
+    },
+    { "action": "wait_for_state", "instruction": "Let the page settle.", "state": "networkidle" }
+  ],
+
+  "assertions": [
+    {
+      "id": "A1",
+      "statement": "What a human should read at Gate 1 to judge whether this test is worth approving.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "The element whose presence proves the objective",
+          "role": "link",
+          "name": "QA {run_id}",
+          "exact": true
+        }
+      },
+      "critical": true
+    }
+  ],
+
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "retain_on_failure",
+    "console": true,
+    "network": false,
+    "snapshot_on_failure": true
+  },
+
+  "budget": {
+    "max_steps": 10,
+    "timeout_ms": 60000,
+    "action_timeout_ms": 15000,
+    "max_discovery_attempts": 3
+  },
+
+  "rerun_policy": { "replay_on_failure": true, "on_divergence": "INCONCLUSIVE" }
+}
