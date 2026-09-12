@@ -1,0 +1,83 @@
+{
+  "test_id": "SM-007",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature/requirement.md",
+    "quote": "An actionable \"Add to Cart\" button.",
+    "content_hash": "sha256:2f4a3b02b9e13b375cec84f00278283e"
+  },
+  "feature": "Product Grid & Display",
+  "module": "ProductGrid",
+  "capability": "ProductGrid.AddToCart",
+  "priority": "P0",
+  "role": "guest",
+  "environment": "STAGE",
+  "auth": {
+    "strategy": "anonymous"
+  },
+  "starting_context": {
+    "page": "Home",
+    "location": "All Products grid"
+  },
+  "preconditions": [
+    "Application is loaded at the home page",
+    "At least one product card is visible in the All Products grid",
+    "Cart badge currently shows a known count (e.g. 0)"
+  ],
+  "test_objective": "Verify clicking 'Add to Cart' on a product card increments the cart count badge.",
+  "expected_outcome": "succeeds",
+  "actions": [
+    {
+      "action": "navigate",
+      "instruction": "Go to the home page.",
+      "url": "/"
+    },
+    {
+      "action": "click",
+      "instruction": "Click the 'Add to Cart' button on the first visible product card.",
+      "target": {
+        "description": "Add to Cart button on first product card",
+        "role": "button",
+        "name": "Add to Cart",
+        "nth": 0,
+        "expect_multiple": true
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "id": "A1",
+      "statement": "The cart count badge increments by 1 after adding the product.",
+      "check": {
+        "type": "text_equals",
+        "target": {
+          "description": "Cart item count badge next to cart icon",
+          "role": "status",
+          "name": "Cart count"
+        },
+        "value": "1"
+      }
+    }
+  ],
+  "evidence_policy": {
+    "screenshot": "on_assertion",
+    "trace": "retain_on_failure",
+    "console": false,
+    "network": false,
+    "snapshot_on_failure": true
+  },
+  "budget": {
+    "max_steps": 8,
+    "timeout_ms": 30000,
+    "action_timeout_ms": 10000
+  },
+  "data_policy": {
+    "creates_artifacts": false
+  },
+  "approval": {
+    "approved_by": "Jay",
+    "approved_at": "2026-09-12T10:53:58.221Z",
+    "edits_made": false,
+    "review_minutes": 5
+  }
+}

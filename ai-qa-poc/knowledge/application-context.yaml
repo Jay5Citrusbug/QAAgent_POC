@@ -1,0 +1,72 @@
+# Application context for the Execution Agent.
+#
+# This is NOT a DOM map. It gives the agent just enough product context to start
+# in the right area. The QA Lead owns this file; it is reviewed whenever a
+# mission fails as ENVIRONMENT_FAILURE or the agent cannot find a named module.
+# It is never auto-generated.
+
+application:
+  name: WorkPod
+  environment: STAGE
+  # Override at runtime with BASE_URL in .env - never commit a real STAGE host
+  # or anything resembling a credential to this file.
+  base_url: https://stage.example.com
+  starting_page: /workpods
+  build: unknown          # set via BUILD env var when a build id is available
+
+pages:
+  workpods:
+    path: /workpods
+    description: List of WorkPods the current user can see.
+  workpod_detail:
+    path: /workpods/:id
+    description: A single WorkPod, including its Comments tab.
+
+modules:
+  - name: WorkPod
+    capabilities:
+      - WorkPod.Create
+      - WorkPod.Rename
+      - WorkPod.Delete
+  - name: Comments
+    capabilities:
+      - Comments.Create
+      - Comments.Attachments
+  - name: Files
+    capabilities:
+      - Files.Upload
+      - Files.Download
+  - name: Notifications
+    capabilities:
+      - Notifications.View
+
+roles:
+  - name: Admin
+    storage_state_ref: admin
+    description: Full access within the workspace. The only role in POC-1.
+  # Member and Guest are deliberately deferred to POC-2. A second role means a
+  # second account and possibly separate tenant setup - environment cost out of
+  # proportion to what it proves, since Admin exercises the identical loop.
+  # - name: Member
+  # - name: Guest
+
+global_testing_rules:
+  - Never test outside the module named in the mission.
+  - Never invent expected behaviour that the mission does not state.
+  - Never mark PASS because an action succeeded; every critical assertion must be verified explicitly.
+  - An unmet precondition is BLOCKED, never FAIL.
+  - A budget overrun is BLOCKED, never FAIL.
+  - An environment problem is never reported as a product defect.
+  - When the intended element cannot be identified with reasonable confidence, stop and report - never operate an unrelated element.
+  - Prefer role and accessible name over CSS; never use coordinates.
+  - Name every created artifact with the run id so re-runs never collide and orphans stay identifiable.
+
+# Data hygiene on STAGE. POC-1 does not auto-delete; it records what it left.
+data_hygiene:
+  artifact_prefix: "AI QA POC"
+  cleanup: manual
+  note: >
+    Every artifact this system creates carries the artifact_prefix and a run id.
+    Anything matching that prefix on STAGE is safe for the QA Lead to bulk
+    delete. Without this, forty runs of SM-001 leave forty orphan WorkPods and
+    a polluted starting state for every later mission.

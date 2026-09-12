@@ -1,0 +1,95 @@
+{
+  "test_id": "EC-002",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature-ecommerce/requirement.md#r-2--hero-carouselbanner",
+    "quote": "A dynamic banner section designed to display multiple promotional or informational slides ... with navigation indicators (dots)."
+  },
+  "feature": "Hero Carousel",
+  "module": "HeroBanner",
+  "capability": "HeroBanner.Slides",
+  "priority": "P0",
+  "role": "Guest",
+  "environment": "STAGE",
+  "auth": {
+    "strategy": "anonymous"
+  },
+  "starting_context": {
+    "page": "home",
+    "location": "hero banner section",
+    "url_hint": "/"
+  },
+  "preconditions": [
+    "STAGE is reachable and the home page loads"
+  ],
+  "test_objective": "Verify the hero carousel shows one navigation dot per slide.",
+  "expected_outcome": "succeeds",
+  "data_policy": {
+    "creates_artifacts": false
+  },
+  "actions": [
+    {
+      "action": "navigate",
+      "instruction": "Open the home page.",
+      "url": "/"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "A1",
+      "statement": "A dot indicator for slide 1 (\"Go to slide 1\") is visible.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "First slide dot",
+          "role": "button",
+          "name": "Go to slide 1"
+        }
+      },
+      "critical": true
+    },
+    {
+      "id": "A2",
+      "statement": "A dot indicator for slide 2 (\"Go to slide 2\") is visible.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "Second slide dot",
+          "role": "button",
+          "name": "Go to slide 2"
+        }
+      },
+      "critical": true
+    },
+    {
+      "id": "A3",
+      "statement": "A dot indicator for slide 3 (\"Go to slide 3\") is visible.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "Third slide dot",
+          "role": "button",
+          "name": "Go to slide 3"
+        }
+      },
+      "critical": true
+    }
+  ],
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "retain_on_failure",
+    "console": true,
+    "network": false,
+    "snapshot_on_failure": true
+  },
+  "budget": {
+    "max_steps": 6,
+    "timeout_ms": 45000,
+    "action_timeout_ms": 15000,
+    "max_discovery_attempts": 3
+  },
+  "rerun_policy": {
+    "replay_on_failure": true,
+    "on_divergence": "INCONCLUSIVE"
+  }
+}

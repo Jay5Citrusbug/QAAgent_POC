@@ -1,0 +1,76 @@
+{
+  "test_id": "SM-004",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature/requirement.md",
+    "quote": "In the hero slider text, the phrase \"Think Like a Product owner\" uses inconsistent title casing (the \"o\" in \"owner\" is lowercase while the rest are capitalized).",
+    "content_hash": "sha256:2f4a3b02b9e13b375cec84f00278283e"
+  },
+  "feature": "Hero Carousel/Banner",
+  "module": "HeroBanner",
+  "capability": "HeroBanner.SlideText",
+  "priority": "P1",
+  "role": "guest",
+  "environment": "STAGE",
+  "auth": {
+    "strategy": "anonymous"
+  },
+  "starting_context": {
+    "page": "Home",
+    "location": "Hero Carousel/Banner"
+  },
+  "preconditions": [
+    "Application is loaded at the home page",
+    "Hero slide 'Think Like a Product Owner' is visible or reachable via carousel navigation"
+  ],
+  "test_objective": "Verify the hero slide phrase uses consistent title casing: 'Think Like a Product Owner'.",
+  "expected_outcome": "succeeds",
+  "actions": [
+    {
+      "action": "navigate",
+      "instruction": "Go to the home page.",
+      "url": "/"
+    },
+    {
+      "action": "wait_for_state",
+      "instruction": "Wait for the hero banner to render.",
+      "state": "load"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "A1",
+      "statement": "The hero slide text reads 'Think Like a Product Owner' with consistent capitalization.",
+      "check": {
+        "type": "text_equals",
+        "target": {
+          "description": "Hero carousel slide heading text",
+          "role": "heading",
+          "text": "Think Like a Product Owner"
+        },
+        "value": "Think Like a Product Owner"
+      }
+    }
+  ],
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "retain_on_failure",
+    "console": false,
+    "network": false,
+    "snapshot_on_failure": true
+  },
+  "budget": {
+    "max_steps": 8,
+    "timeout_ms": 30000,
+    "action_timeout_ms": 10000
+  },
+  "data_policy": {
+    "creates_artifacts": false
+  },
+  "approval": {
+    "approved_by": "Jay",
+    "approved_at": "2026-09-12T10:53:55.599Z",
+    "edits_made": false,
+    "review_minutes": 5
+  }
+}

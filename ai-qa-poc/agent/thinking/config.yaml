@@ -1,0 +1,35 @@
+# Thinking Agent configuration.
+#
+# POC-1 has no LLM API integration: `npm run think` assembles the prompt and a
+# human pastes it into the model. This file records which model that should be,
+# so the choice is a committed decision rather than whatever tab was open — and
+# so the Stage 2 script has something to read when the integration is built.
+
+model: claude-opus-5
+
+# Opus 5 thinks by default. Effort controls depth; `high` is the right level for
+# requirement analysis — the work is finding what ISN'T stated, which is where
+# reasoning depth actually pays. Drop to `medium` for a re-run of a feature that
+# has already been analysed once.
+effort: high
+
+# Roughly $0.20–0.30 per feature analysis at Opus 5 rates ($5/$25 per 1M tokens).
+# Model cost is not the variable that matters here; human review time is.
+# See docs/BASELINE.md.
+cost_note: "~$0.20-0.30 per feature analysis"
+
+# Alternatives, if you deliberately want to trade quality for cost:
+#   claude-sonnet-5   $2/$10   — acceptable for re-analysing a known feature
+#   claude-haiku-4-5  $1/$5    — too shallow for gap analysis; don't
+#
+# Override for one run with THINKING_MODEL in .env or the environment.
+
+output:
+  # Where the analysis half of the output is committed. The Thinking Agent runs
+  # in a chat window, so without a destination its reasoning evaporates — which
+  # is the traceability hole VISION section 16 warns about.
+  analysis: thinking/analysis
+  # Where generated prompt packs are written (gitignored — they are rebuildable).
+  prompts: thinking/prompts
+  # Where draft missions go, for Gate 1.
+  missions: missions/draft

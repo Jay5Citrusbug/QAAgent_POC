@@ -1,0 +1,27 @@
+{
+  "name": "ai-qa-poc-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Frontend for the QA Thinking Agent. Requirement in, gaps and questions out, approved missions on disk.",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.2"
+  }
+}

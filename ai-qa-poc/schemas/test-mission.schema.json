@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qagents.local/schemas/test-mission.schema.json",
+  "title": "Test Mission",
+  "description": "The contract between the Thinking Agent and the Execution Agent. The Thinking Agent produces it, a human approves it at Gate 1, the Execution Agent consumes it. The Execution Agent must never redefine test_objective.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "test_id",
+    "feature",
+    "module",
+    "capability",
+    "priority",
+    "role",
+    "environment",
+    "starting_context",
+    "preconditions",
+    "test_objective",
+    "expected_outcome",
+    "actions",
+    "assertions",
+    "evidence_policy",
+    "budget",
+    "data_policy"
+  ],
+  "properties": {
+    "test_id": {
+      "type": "string",
+      "pattern": "^[A-Z]{2,4}-[0-9]{3}$",
+      "description": "Stable identifier. Every result traces back to this."
+    },
+
+    "requirement_ref": {
+      "type": "object",
+      "description": "[R2] Traceability to the source requirement, not just the test id. Success criterion 8 is unenforceable without this.",
+      "additionalProperties": false,
+      "required": ["source", "locator"],
+      "properties": {
+        "source": { "type": "string", "enum": ["DOC", "TICKET", "CHAT_TRANSCRIPT", "VERBAL"] },
+        "locator": { "type": "string", "description": "Path under input/feature/, a ticket id, or a URL." },
+        "content_hash": { "type": "string", "description": "sha256 of the captured requirement text. Detects a requirement changing under an unchanged mission." },
+        "quote": { "type": "string", "description": "The specific sentence(s) this mission is derived from." }
+      }
+    },
+
+    "feature": { "type": "string" },
+    "module": { "type": "string", "description": "Must exist in knowledge/application-context.yaml." },
+    "capability": { "type": "string", "description": "Dotted capability path, e.g. WorkPod.Create." },
+    "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+    "role": { "type": "string", "description": "Must exist in knowledge/application-context.yaml roles." },
+    "environment": { "type": "string", "enum": ["STAGE"], "description": "POC-1 is STAGE only. Deliberately narrow." },
+
+    "auth": {
+      "type": "object",
+      "description": "[R2] 'Admin is authenticated' was a precondition with no mechanism. Never a UI login per mission, never a credential in this file.",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "properties": {
+        "strategy": { "type": "string", "enum": ["storage_state", "anonymous"] },
+        "storage_state_ref": { "type": "string", "description": "Logical session name, e.g. 'admin'. Resolved to .auth/<ref>.json out-of-band. Not a credential." }
+      }
+    },
+
+    "starting_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page"],
+      "properties": {
+        "page": { "type": "string", "description": "Named page from application-context.yaml, or a human page name." },
+        "location": { "type": "string", "description": "Semantic location within the page, e.g. 'Target WorkPod > Comments'." },
+        "url_hint": { "type": "string", "description": "Optional path relative to base_url, to shortcut navigation." }
+      }
+    },
+
+    "preconditions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "State that must hold before step 1. An unmet precondition means BLOCKED, never FAIL."
+    },
+
+    "test_objective": { "type": "string", "description": "One sentence. The Execution Agent may not alter it." },
+
+    "expected_outcome": {
+      "type": "string",
+      "enum": ["succeeds", "blocked"],
+      "description": "[R2] Negative missions expect the application to refuse. Without this the agent reports FAIL on correct behaviour. 'blocked' means preventing the action is a PASS."
+    },
+
+    "test_data": {
+      "type": "array",
+      "description": "Fixtures this mission needs; files live under fixtures/.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "path"],
+        "properties": {
+          "name": { "type": "string", "description": "Referenced by an action's data_ref." },
+          "path": { "type": "string", "description": "Relative to the project root, e.g. fixtures/sample.pdf." },
+          "note": { "type": "string" }
+        }
+      }
+    },
+
+    "data_policy": {
+      "type": "object",
+      "description": "[R2] Creation tests litter STAGE. Forty runs of SM-001 means forty orphan WorkPods and a polluted starting state for every later mission.",
+      "additionalProperties": false,
+      "required": ["creates_artifacts"],
+      "properties": {
+        "creates_artifacts": { "type": "boolean" },
+        "naming_pattern": { "type": "string", "description": "Run-scoped unique name, e.g. 'AI QA POC {run_id}'. {run_id} is substituted at execution time so re-runs never collide." },
+        "cleanup": { "type": "string", "enum": ["none", "best_effort", "required"], "description": "'required' means a failed teardown degrades the result to INCONCLUSIVE." },
+        "cleanup_instruction": { "type": "string", "description": "Human teardown note. Manual in POC-1 - the agent records what it left behind." }
+      }
+    },
+
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Intent, not CSS. Targets are semantic descriptors resolved against the live page or the locator cache.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "instruction"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["navigate", "click", "fill", "type", "select", "check", "upload", "hover", "press", "wait_for_state", "verify"]
+          },
+          "instruction": { "type": "string", "description": "The human sentence describing this step." },
+          "target": { "$ref": "#/$defs/target" },
+          "value": { "type": "string", "description": "Text to fill/type, option to select, or key to press. Supports {run_id} substitution." },
+          "data_ref": { "type": "string", "description": "Name from test_data, for upload actions." },
+          "url": { "type": "string", "description": "navigate only. Relative to base_url." },
+          "state": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle"], "description": "wait_for_state only." },
+          "assertion_ref": { "type": "string", "description": "verify only. Id of an assertion to evaluate mid-flow rather than at the end." },
+          "tolerate_failure": {
+            "type": "boolean",
+            "description": "[R2] For expected_outcome 'blocked' missions: this step may legitimately fail because the app should refuse it. A failure here is recorded, not fatal."
+          }
+        }
+      }
+    },
+
+    "assertions": {
+      "type": "array",
+      "minItems": 1,
+      "description": "[R2] R1 assertions were free text, so one LLM interpreted, executed AND graded the test. 'check' makes pass/fail a Playwright expectation instead of a model opinion.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "check"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^A[0-9]+$" },
+          "statement": { "type": "string", "description": "The human sentence. This is what the reviewer reads at Gate 1." },
+          "check": {
+            "type": "object",
+            "description": "The machine-checkable form. An assertion that cannot be expressed as a real expectation yields INCONCLUSIVE, never PASS.",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["visible", "not_visible", "text_equals", "text_contains", "enabled", "disabled", "count", "url_contains", "attribute_equals"]
+              },
+              "target": { "$ref": "#/$defs/target" },
+              "value": { "type": ["string", "number"], "description": "Expected value, where the check type needs one. Supports {run_id} substitution." },
+              "attribute": { "type": "string", "description": "attribute_equals only." }
+            }
+          },
+          "critical": {
+            "type": "boolean",
+            "description": "Defaults to true. A non-critical assertion failing degrades to INCONCLUSIVE rather than FAIL."
+          }
+        }
+      }
+    },
+
+    "evidence_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "screenshot": { "type": "string", "enum": ["on_failure", "on_assertion", "always", "never"], "description": "Default on_failure, for the token/time reasons in VISION section 11." },
+        "trace": { "type": "string", "enum": ["retain_on_failure", "always", "never"], "description": "[R2] On from day one. The Playwright trace viewer alone lets a human review a failure without re-running it." },
+        "console": { "type": "boolean" },
+        "network": { "type": "boolean" },
+        "snapshot_on_failure": { "type": "boolean", "description": "Capture the accessibility snapshot at the point of failure." }
+      }
+    },
+
+    "budget": {
+      "type": "object",
+      "description": "[R2] VISION section 11 asked for token/time control but nothing enforced it. Exceeding a cap ends the mission BLOCKED, never FAIL - a budget overrun is not evidence of a defect.",
+      "additionalProperties": false,
+      "required": ["max_steps", "timeout_ms"],
+      "properties": {
+        "max_steps": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "timeout_ms": { "type": "integer", "minimum": 5000, "maximum": 600000, "description": "Whole-mission wall clock." },
+        "action_timeout_ms": { "type": "integer", "minimum": 1000, "maximum": 120000 },
+        "max_discovery_attempts": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Strategies tried per element before giving up. Stops the agent hunting a renamed button forever." }
+      }
+    },
+
+    "rerun_policy": {
+      "type": "object",
+      "description": "[R2] A single FAIL from an agentic run is weak evidence, and weak evidence is what destroys the trust the KPI depends on.",
+      "additionalProperties": false,
+      "properties": {
+        "replay_on_failure": { "type": "boolean", "description": "One deterministic replay from the recorded trace before reporting FAIL." },
+        "on_divergence": { "type": "string", "enum": ["INCONCLUSIVE"], "description": "Runs that disagree are never reported as FAIL." }
+      }
+    },
+
+    "approval": {
+      "type": "object",
+      "description": "[R2] Gate 1, made machine-checkable. The Execution Agent refuses any mission outside missions/approved/ or with this block absent.",
+      "additionalProperties": false,
+      "required": ["approved_by", "approved_at"],
+      "properties": {
+        "approved_by": { "type": "string" },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "edits_made": { "type": "boolean", "description": "Did the human change the generated mission? Feeds the mission edit rate in docs/BASELINE.md." },
+        "review_minutes": { "type": "number", "description": "Missions costing 20 minutes of review each are a net loss even if execution is free." }
+      }
+    }
+  },
+
+  "$defs": {
+    "target": {
+      "type": "object",
+      "description": "A semantic element descriptor. Never a coordinate. The Thinking Agent supplies meaning; the Execution Agent resolves it against the live page.",
+      "additionalProperties": false,
+      "required": ["description"],
+      "properties": {
+        "description": { "type": "string", "description": "Human description, used in logs and evidence." },
+        "capability_key": { "type": "string", "description": "Key into knowledge/locator-cache.json, e.g. 'workpod.create'. A hint only - a stale cache entry falls through to discovery." },
+        "role": { "type": "string", "description": "ARIA role, e.g. button, link, textbox, dialog." },
+        "name": { "type": "string", "description": "Accessible name." },
+        "exact": { "type": "boolean", "description": "Match the accessible name exactly rather than by substring." },
+        "label": { "type": "string" },
+        "placeholder": { "type": "string" },
+        "text": { "type": "string" },
+        "test_id": { "type": "string" },
+        "selector": { "type": "string", "description": "Explicit CSS/XPath escape hatch. Allowed only when a semantic descriptor genuinely cannot express the element, and it is recorded as a low-confidence strategy." },
+        "within": { "$ref": "#/$defs/target", "description": "Scope the search inside another element, e.g. the comment just submitted. Prevents matching a stale element elsewhere on the page." },
+        "nth": { "type": "integer", "minimum": 0, "description": "Disambiguate a legitimately repeated element. Requires expect_multiple." },
+        "expect_multiple": { "type": "boolean", "description": "Acknowledges that several elements match. Without it, an ambiguous match is an error - the agent never silently picks one." }
+      }
+    }
+  }
+}

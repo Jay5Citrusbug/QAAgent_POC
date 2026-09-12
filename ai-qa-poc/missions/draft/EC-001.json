@@ -1,0 +1,91 @@
+{
+  "test_id": "EC-001",
+  "requirement_ref": {
+    "source": "DOC",
+    "locator": "input/feature-ecommerce/requirement.md#r-1--global-navigation",
+    "quote": "A top navigation bar containing the brand logo and links to core pages (Home, Products, Cart, Checkout). A dedicated shopping cart icon to display or navigate to user selections."
+  },
+
+  "feature": "Global Navigation",
+  "module": "Navigation",
+  "capability": "Navigation.Links",
+  "priority": "P0",
+  "role": "Guest",
+  "environment": "STAGE",
+
+  "auth": { "strategy": "anonymous" },
+
+  "starting_context": {
+    "page": "home",
+    "location": "top navigation bar",
+    "url_hint": "/"
+  },
+
+  "preconditions": ["STAGE is reachable and the home page loads"],
+
+  "test_objective": "Verify the top navigation bar shows links to all four core pages.",
+  "expected_outcome": "succeeds",
+
+  "data_policy": { "creates_artifacts": false },
+
+  "actions": [
+    { "action": "navigate", "instruction": "Open the home page.", "url": "/" }
+  ],
+
+  "assertions": [
+    {
+      "id": "A1",
+      "statement": "A link to the Products page is present in the top navigation.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "Products link, scoped to the top nav (the footer's Quick Links repeats the same link text — see requirement R-5 — so an unscoped match would be ambiguous)",
+          "role": "link",
+          "name": "Products",
+          "within": { "description": "top navigation bar", "role": "navigation" }
+        }
+      },
+      "critical": true
+    },
+    {
+      "id": "A2",
+      "statement": "A link to the Checkout page is present in the top navigation.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "Checkout link, scoped to the top nav (also duplicated in the footer)",
+          "role": "link",
+          "name": "Checkout",
+          "within": { "description": "top navigation bar", "role": "navigation" }
+        }
+      },
+      "critical": true
+    },
+    {
+      "id": "A3",
+      "statement": "A link to the Cart is present in the top navigation.",
+      "check": {
+        "type": "visible",
+        "target": {
+          "description": "Cart link, scoped to the top nav (also duplicated in the footer)",
+          "role": "link",
+          "name": "Cart",
+          "within": { "description": "top navigation bar", "role": "navigation" }
+        }
+      },
+      "critical": true
+    }
+  ],
+
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "retain_on_failure",
+    "console": true,
+    "network": false,
+    "snapshot_on_failure": true
+  },
+
+  "budget": { "max_steps": 8, "timeout_ms": 60000, "action_timeout_ms": 15000, "max_discovery_attempts": 3 },
+
+  "rerun_policy": { "replay_on_failure": true, "on_divergence": "INCONCLUSIVE" }
+}

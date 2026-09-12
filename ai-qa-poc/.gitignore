@@ -1,0 +1,8 @@
+node_modules/
+.auth/
+.env
+runs/
+reports/
+test-results/
+*.log
+thinking/prompts/

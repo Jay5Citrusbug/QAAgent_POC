@@ -1,0 +1,70 @@
+# Application context for the Execution Agent — e-commerce practice platform.
+#
+# Kept as a separate file from application-context.yaml (WorkPod), since the
+# two features are separate applications, not two areas of the same product.
+# See input/feature-ecommerce/requirement.md for the source requirement.
+
+application:
+  name: E-commerce Practice Platform
+  environment: STAGE
+  base_url: https://buggyqa.vercel.app/
+  starting_page: /
+  build: unknown
+
+pages:
+  home:
+    path: /
+    description: Landing page — hero carousel, category filters, product grid.
+  cart:
+    path: /cart
+    description: >
+      Path is a guess (requirement gap G-4 — the cart's actual destination is
+      unstated: could be a page, a dropdown, or a slide-over). Confirm against
+      the live app before trusting url_contains assertions that rely on it.
+
+modules:
+  - name: Navigation
+    capabilities:
+      - Navigation.Links
+      - Navigation.CartIcon
+  - name: HeroBanner
+    capabilities:
+      - HeroBanner.Slides
+  - name: Categories
+    capabilities:
+      - Categories.Filter
+  - name: ProductGrid
+    capabilities:
+      - ProductGrid.Display
+      - ProductGrid.AddToCart
+  - name: Footer
+    capabilities:
+      - Footer.ContactInfo
+      - Footer.QuickLinks
+
+roles:
+  - name: Guest
+    description: >
+      No login/auth flow is mentioned anywhere in the requirement (gap G-2).
+      The entire storefront is assumed anonymous/guest-accessible. No
+      storage_state_ref — missions for this role use auth.strategy: anonymous.
+
+global_testing_rules:
+  - Never test outside the module named in the mission.
+  - Never invent expected behaviour the requirement does not state — the cart
+    confirmation mechanism (gap G-3) and cart contents view (gap G-4) are
+    explicitly unknown; missions must not assert a specific UI for either.
+  - Never mark PASS because an action succeeded; every critical assertion must
+    be verified explicitly.
+  - Prefer role and accessible name over CSS; never use coordinates.
+  - Product names/prices are unknown (gap G-8) — assertions target structure
+    and behaviour (a category tag matches, a price element is present), not
+    specific text content, unless the mission says otherwise.
+
+data_hygiene:
+  artifact_prefix: "AI QA POC"
+  cleanup: manual
+  note: >
+    Cart additions on a session/anonymous storefront are typically ephemeral
+    (browser session or server-side session cart), not persistent database
+    rows — but this is an assumption (gap G-3/G-4), not a confirmed fact.

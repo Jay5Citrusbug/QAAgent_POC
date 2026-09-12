@@ -1,0 +1,30 @@
+{
+  "name": "ai-qa-poc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-driven functional smoke testing POC. Thinking Agent proposes, human approves, Execution Agent drives Playwright.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "think": "tsx scripts/think.ts",
+    "validate": "tsx scripts/validate.ts",
+    "approve": "tsx scripts/approve.ts",
+    "run-mission": "tsx scripts/run.ts",
+    "report": "tsx scripts/report.ts",
+    "browsers": "playwright install chromium"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.49.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

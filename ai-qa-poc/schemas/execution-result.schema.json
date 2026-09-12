@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qagents.local/schemas/execution-result.schema.json",
+  "title": "Execution Result",
+  "description": "What the Execution Agent returns for one mission. Status answers what happened to the test; failure_classification answers whose fault it was. The two axes stay orthogonal.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "test_id",
+    "status",
+    "steps_executed",
+    "expected",
+    "actual",
+    "evidence",
+    "failure_classification",
+    "confidence",
+    "notes"
+  ],
+  "properties": {
+    "test_id": { "type": "string" },
+    "run_id": { "type": "string", "description": "Identifies this execution. Also substituted into mission naming patterns so re-runs never collide." },
+    "requirement_ref": {
+      "type": "object",
+      "description": "[R2] Copied forward from the mission so a result traces back to the requirement, not just the test id.",
+      "additionalProperties": true
+    },
+
+    "feature": { "type": "string" },
+    "module": { "type": "string" },
+    "test_objective": { "type": "string", "description": "Copied from the mission so a report is readable without opening it." },
+    "environment": { "type": "string" },
+    "role": { "type": "string" },
+    "build": { "type": "string", "description": "Build/commit under test, if known." },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "duration_ms": { "type": "integer" },
+
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE"]
+    },
+
+    "failure_kind": {
+      "type": "string",
+      "enum": [
+        "none",
+        "assertion_failed",
+        "assertion_unevaluable",
+        "target_not_found",
+        "target_ambiguous",
+        "action_error",
+        "navigation_error",
+        "precondition_unmet",
+        "budget_exceeded",
+        "missing_test_data",
+        "auth_missing"
+      ],
+      "description": "[R2] What kind of thing stopped the run, recorded by the executor as raw input to the classifier. It is an observation, not a verdict - the executor never says whose fault the failure was."
+    },
+
+    "steps_executed": {
+      "type": "array",
+      "description": "Ordered record of what actually happened, one entry per attempted action.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "action", "instruction", "outcome"],
+        "properties": {
+          "index": { "type": "integer" },
+          "action": { "type": "string" },
+          "instruction": { "type": "string" },
+          "outcome": { "type": "string", "enum": ["OK", "FAILED", "SKIPPED", "TOLERATED_FAILURE"] },
+          "resolved_locator": { "type": "string", "description": "The Playwright locator actually used." },
+          "resolution_strategy": { "type": "string", "enum": ["cache", "test_id", "role_name", "label", "placeholder", "text", "selector", "none"] },
+          "resolution_confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+          "duration_ms": { "type": "integer" },
+          "error": { "type": "string" }
+        }
+      }
+    },
+
+    "expected": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The assertion statements from the mission, verbatim."
+    },
+
+    "actual": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What was observed for each assertion. Observation only - never an interpretation of why."
+    },
+
+    "assertion_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "passed", "critical"],
+        "properties": {
+          "id": { "type": "string" },
+          "statement": { "type": "string" },
+          "check_type": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "critical": { "type": "boolean" },
+          "observed": { "type": "string" },
+          "error": { "type": "string" },
+          "evaluable": {
+            "type": "boolean",
+            "description": "[R2] False when the check could not be turned into a real expectation. Unevaluable means INCONCLUSIVE, never PASS."
+          }
+        }
+      }
+    },
+
+    "evidence": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths relative to the project root. Sufficient for a human to review without re-running."
+    },
+
+    "replayable_trace": {
+      "type": "object",
+      "description": "[R2] The ordered resolved locators and actions actually used. Costs nothing to emit and is the highest-leverage artifact here: it feeds the locator cache, it makes the deterministic replay possible, and it turns the eventual conversion to permanent Playwright tests into codegen instead of re-authoring.",
+      "additionalProperties": false,
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action"],
+            "properties": {
+              "action": { "type": "string" },
+              "locator": { "type": "string" },
+              "value": { "type": "string" },
+              "url": { "type": "string" },
+              "capability_key": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "replay": {
+      "type": "object",
+      "description": "[R2] Result of the one deterministic replay attempted after a failure.",
+      "additionalProperties": false,
+      "properties": {
+        "attempted": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE"] },
+        "agrees_with_first_run": { "type": "boolean" },
+        "note": { "type": "string" }
+      }
+    },
+
+    "budget_usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "steps_used": { "type": "integer" },
+        "max_steps": { "type": "integer" },
+        "elapsed_ms": { "type": "integer" },
+        "timeout_ms": { "type": "integer" },
+        "exceeded": { "type": "boolean" }
+      }
+    },
+
+    "artifacts_left_behind": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[R2] What this run created on STAGE and did not remove. Manual cleanup in POC-1, but never invisible."
+    },
+
+    "failure_classification": {
+      "type": ["string", "null"],
+      "enum": ["PRODUCT_DEFECT", "AGENT_EXECUTION_FAILURE", "ENVIRONMENT_FAILURE", "TEST_DATA_FAILURE", "INCONCLUSIVE", null],
+      "description": "Null on PASS. Proposed by the classifier pass, NOT by the executor - an agent that just failed is the least reliable narrator of why. The human at Gate 2 accepts or overrides."
+    },
+
+    "classification_source": {
+      "type": "string",
+      "enum": ["classifier", "human", "none"],
+      "description": "[R2] Records who decided. Executor self-classification is not an allowed value."
+    },
+
+    "classification_rationale": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Why the classifier landed where it did, so the human can disagree with a reason."
+    },
+
+    "human_review": {
+      "type": "object",
+      "description": "Gate 2. Filled in by a person, never by an agent.",
+      "additionalProperties": false,
+      "properties": {
+        "reviewed_by": { "type": "string" },
+        "reviewed_at": { "type": "string", "format": "date-time" },
+        "accepted_classification": { "type": "boolean" },
+        "final_classification": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+
+    "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  }
+}
