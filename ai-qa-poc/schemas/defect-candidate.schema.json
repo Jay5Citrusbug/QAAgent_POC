@@ -112,6 +112,29 @@
       }
     },
 
+    "ai_analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "summary": { "type": "string" },
+        "likely_cause": { "type": "string" },
+        "confidence": { "type": "string" },
+        "evidence": { "type": "array", "items": { "type": "string" } },
+        "follow_up": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fresh", "state_policy"],
+      "properties": {
+        "fresh": { "type": "boolean" },
+        "inherited_from": { "type": "string" },
+        "state_policy": { "type": "string" }
+      }
+    },
+
     "rests_on_assumption": {
       "type": "boolean",
       "description": "The test asserted a rule answered by assumption rather than confirmation. This failure may mean the assumption was wrong rather than the product - raise it as a question before raising it as a bug."

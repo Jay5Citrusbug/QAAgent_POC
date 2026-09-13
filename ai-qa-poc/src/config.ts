@@ -139,6 +139,17 @@ export const RUNTIME = {
   headed: argvHas('headless') ? false : argvHas('headed') ? true : process.env.HEADED !== 'false',
   slowMo: Number(argvValue('slow-mo') ?? process.env.SLOW_MO ?? 0),
   build: process.env.BUILD ?? 'unknown',
+  /**
+   * Give every mission its own untouched browser instead of reusing the one the
+   * previous mission left open.
+   *
+   * Reuse is the default because it is both much faster and more faithful — a
+   * shopper adds an item and clicks through to the cart in the window already
+   * open, rather than reopening the site. The cost is that state carries over,
+   * so this flag exists for the moment a result looks like it might belong to
+   * the test before it.
+   */
+  freshState: argvHas('fresh-state') || process.env.FRESH_STATE === 'true',
   /** Kept for the eventual second browser; POC-1 is Chromium only. */
   browser: 'chromium' as const,
 };

@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { PATHS } from './config.js';
 import { resolveTarget } from './discovery.js';
+import { FIRST_OPTION } from './form-fill.js';
 import { interpolate as interpolateValue } from './interpolate.js';
 import type { LocatorCache } from './locator-cache.js';
 import type { MissionAction, StepRecord, TestMission, TraceStep } from './types.js';
@@ -117,7 +118,29 @@ export async function performAction(
       await locator.pressSequentially(value ?? '', { timeout });
       break;
     case 'select':
-      await locator.selectOption(value ?? '', { timeout });
+      /**
+       * `{first_option}` means "whichever option this dropdown actually
+       * offers first". Dependent dropdowns — a state list that is empty until
+       * a country is chosen — cannot be named at bind time, because at capture
+       * time they genuinely have no options. Reading them here, after the
+       * fields they depend on have been filled, is the only place the answer
+       * exists. It stays deterministic: first real option, every run.
+       */
+      if (value === FIRST_OPTION) {
+        const options = await locator.locator('option').all();
+        let picked: string | undefined;
+        for (const option of options) {
+          const v = await option.getAttribute('value');
+          if (v) {
+            picked = v;
+            break;
+          }
+        }
+        if (picked === undefined) throw new Error('the dropdown offers no selectable option');
+        await locator.selectOption(picked, { timeout });
+      } else {
+        await locator.selectOption(value ?? '', { timeout });
+      }
       break;
     case 'check':
       await locator.check({ timeout });

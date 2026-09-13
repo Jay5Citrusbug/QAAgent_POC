@@ -23,6 +23,17 @@ export interface ControlFact {
   count: number;
   /** Where each match sits, so the agent knows when it must scope a target. */
   regions: string[];
+  /**
+   * For form fields only: what the field is *for*, in the markup's own terms.
+   *
+   * A field's accessible name is often just its placeholder — the checkout
+   * email box is called "john@example.com" — which shares no words with an
+   * intent that says "supply an email address". Matching a step to a field on
+   * accessible name alone therefore failed on exactly the forms that matter.
+   * The `type` and `name` attributes say what the author meant, so they are
+   * recorded and matched against too.
+   */
+  field?: { type: string; attr: string; placeholder: string; required: boolean; options?: string[] };
 }
 
 export interface ImageFact {
@@ -63,13 +74,21 @@ export async function inspectPage(url: string, timeoutMs = 30_000): Promise<Page
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     await page.goto(url, { waitUntil: 'networkidle', timeout: timeoutMs });
-    return await extract(page, url);
+    return await readPage(page, url);
   } finally {
     await browser.close().catch(() => undefined);
   }
 }
 
-async function extract(page: Page, url: string): Promise<PageReality> {
+/**
+ * Read whatever the page is showing right now.
+ *
+ * Exported so a capture can be taken partway through a flow, not only after a
+ * fresh navigation. The checkout form, a validation message, a filtered grid —
+ * none of them exist until someone has done something first, and a snapshot of
+ * the initial page can never contain them.
+ */
+export async function readPage(page: Page, url: string): Promise<PageReality> {
   const title = await page.title();
 
   // Everything below runs in the page. NO named inner functions, not even
@@ -95,7 +114,16 @@ async function extract(page: Page, url: string): Promise<PageReality> {
     }
 
     // --- controls, with their accessible names ---------------------------
-    const controlMap: Record<string, { role: string; name: string; count: number; regions: string[] }> = {};
+    const controlMap: Record<
+      string,
+      {
+        role: string;
+        name: string;
+        count: number;
+        regions: string[];
+        field?: { type: string; attr: string; placeholder: string; required: boolean; options?: string[] };
+      }
+    > = {};
     const selector = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [role="tab"]';
     for (const el of Array.from(root.querySelectorAll(selector))) {
       const cs = window.getComputedStyle(el);
@@ -136,6 +164,25 @@ async function extract(page: Page, url: string): Promise<PageReality> {
       if (!name) name = el.getAttribute('placeholder') || '';
       name = name.replace(/\s+/g, ' ').trim().slice(0, 60);
 
+      const tagIsField = tag === 'input' || tag === 'select' || tag === 'textarea';
+      const field = tagIsField
+        ? {
+            type: tag === 'input' ? (el as HTMLInputElement).type : tag,
+            attr: el.getAttribute('name') || el.getAttribute('id') || '',
+            placeholder: el.getAttribute('placeholder') || '',
+            required: el.hasAttribute('required') || el.getAttribute('aria-required') === 'true',
+            ...(tag === 'select'
+              ? {
+                  options: Array.from((el as HTMLSelectElement).options)
+                    .filter((o) => o.value !== '')
+                    .map((o) => (o.textContent || '').trim())
+                    .filter(Boolean)
+                    .slice(0, 25),
+                }
+              : {}),
+          }
+        : undefined;
+
       const key = `${role}|${name}`;
       const region = el.closest('nav')
         ? 'nav'
@@ -152,7 +199,7 @@ async function extract(page: Page, url: string): Promise<PageReality> {
         controlMap[key].count += 1;
         if (!controlMap[key].regions.includes(region)) controlMap[key].regions.push(region);
       } else {
-        controlMap[key] = { role, name, count: 1, regions: [region] };
+        controlMap[key] = { role, name, count: 1, regions: [region], ...(field ? { field } : {}) };
       }
     }
 

@@ -10,6 +10,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "new-feature": "tsx scripts/new-feature.ts",
+    "preflight": "tsx scripts/preflight.ts",
     "inspect": "tsx scripts/inspect.ts",
     "think": "tsx scripts/think.ts",
     "clarify": "tsx scripts/clarify.ts",
@@ -25,6 +26,7 @@
     "coverage": "tsx scripts/coverage.ts",
     "metrics": "tsx scripts/metrics.ts",
     "report": "tsx scripts/report.ts",
+    "execution-report": "tsx scripts/execution-report.ts",
     "promote": "tsx scripts/promote.ts",
     "regression": "playwright test",
     "browsers": "playwright install chromium",

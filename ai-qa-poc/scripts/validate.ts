@@ -17,6 +17,7 @@ import path from 'node:path';
 import { PATHS } from '../src/config.js';
 import { isApproved, lintMission, readMissionFile, validateMission } from '../src/validate.js';
 import { loadLedger } from '../src/clarifications.js';
+import { buildCoverage, loadExclusions } from '../src/coverage.js';
 import {
   approvalBlockers,
   isApproved as isIntentApproved,
@@ -155,5 +156,39 @@ if (warnings > 0 && failures === 0) {
 if (blocked > 0) {
   console.log('Blocked intents cannot pass Gate 1 until the questions are answered:');
   console.log('  npm run clarify -- --open');
+}
+
+/**
+ * [R5] Coverage is reported here, unasked.
+ *
+ * It used to be a separate command someone had to remember to run, which meant
+ * four empty categories sat unnoticed in a 23-intent set until they were
+ * audited by hand. Surfacing it as part of the ordinary "is this okay?" command
+ * is what stops it being a question anyone has to think to ask.
+ *
+ * Reported, not failed: `npm run coverage -- --check` is the gate. This is the
+ * reminder that the gate exists and what it would currently say.
+ */
+if (intentFiles.length > 0 || files.length > 0) {
+  const intents = intentFiles.map(readIntentFile);
+  const missions = files.map(readMissionFile);
+  const report = buildCoverage(missions, intents);
+  const features = Array.from(new Set(intents.map((i) => i.feature).filter(Boolean)));
+  const excluded = new Set(
+    features.flatMap((f) => loadExclusions(f).map((e) => e.category.toLowerCase())),
+  );
+  const open = report.gapsAutomatable.filter(
+    (g) => !excluded.has(g.key.toLowerCase()) && !excluded.has(g.label.toLowerCase()),
+  );
+
+  console.log('');
+  if (open.length === 0) {
+    console.log('Coverage: every automatable category is covered or recorded as not applicable.');
+  } else {
+    console.log(`Coverage: ${open.length} automatable category(s) have nothing covering them —`);
+    console.log(`  ${open.map((g) => g.key).join(', ')}`);
+    console.log('  Each needs an intent, or a reason in input/feature-*/coverage-exclusions.yaml.');
+    console.log('  npm run coverage -- --check --drafts   (fails the build on exactly this)');
+  }
 }
 process.exit(failures > 0 ? 1 : 0);

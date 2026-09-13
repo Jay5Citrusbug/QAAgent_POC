@@ -13,10 +13,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyClassification } from '../src/classify.js';
 import { loadAppContext, PATHS, rel, RUNTIME } from '../src/config.js';
-import { runMission } from '../src/executor.js';
+import { closeBrowserSession, runMission } from '../src/executor.js';
 import { writeReport } from '../src/report.js';
+import { writeFinalReport } from '../src/final-report.js';
+import { fromExecution, fromFinding, listDefects, upsert, writeReport as writeDefectReport } from '../src/defect.js';
 import { checkRequirementDrift, describeDrift } from '../src/requirement-hash.js';
 import { isApproved, readMissionFile, validateMission, validateResult } from '../src/validate.js';
+import { analysisKey, analyzeExecution } from '../src/execution-ai.js';
 import type { ExecutionResult } from '../src/types.js';
 
 function flag(name: string): string | undefined {
@@ -75,6 +78,7 @@ if (ctx.application.base_url.includes('example.com')) {
 }
 
 const results: ExecutionResult[] = [];
+const aiByFinding = new Map<string, NonNullable<ExecutionResult['ai_analysis']>>();
 
 for (const file of files) {
   const mission = readMissionFile(file);
@@ -105,6 +109,17 @@ for (const file of files) {
 
   const raw = await runMission(mission, { feature: featureName });
   const result = applyClassification(raw, mission);
+  const aiKey = process.env.EXECUTION_AI === 'true' ? analysisKey(result) : undefined;
+  if (aiKey) {
+    const existing = aiByFinding.get(aiKey);
+    const analysis = existing ?? (await analyzeExecution(mission, result));
+    aiByFinding.set(aiKey, analysis);
+    result.ai_analysis = analysis;
+    if (analysis.status === 'failed') result.notes.push(`Execution AI unavailable: ${analysis.error}`);
+    const aiFile = path.join(PATHS.root, 'runs', mission.test_id, result.run_id ?? 'unknown', 'ai-analysis.json');
+    fs.writeFileSync(aiFile, `${JSON.stringify(analysis, null, 2)}\n`, 'utf8');
+    result.evidence = [...new Set([...result.evidence, rel(aiFile)])];
+  }
   if (driftNote) result.notes.push(driftNote);
   results.push(result);
 
@@ -127,9 +142,40 @@ for (const file of files) {
   console.log('');
 }
 
+/**
+ * The suite is over, so let the shared browser go.
+ *
+ * Missions hand their page to the next mission rather than closing it, which is
+ * what makes a run fast and what lets a cart survive from one step to the next.
+ * Nothing else ever closes it, so this is the one place Chromium is shut down.
+ */
+await closeBrowserSession();
+
 if (results.length > 0) {
   const report = writeReport(results);
   console.log(`Report: ${rel(report)}`);
+
+  /**
+   * [R5] The execution report is written every run, unasked.
+   *
+   * The summary above covers the missions that ran. It cannot tell you the
+   * thing that matters most after a run — whether what ran is what was
+   * approved. After the first real run it was 3 of 29, and every artifact
+   * reported cheerfully on the 3. A report nobody has to remember to ask for
+   * is the only kind that keeps getting written, so this is not a flag.
+   */
+  const defectsBuilt = buildDefects(results);
+  const finalReport = writeFinalReport({ feature: featureName, results });
+
+  console.log(`Execution report: ${finalReport}`);
+  console.log('');
+  if (defectsBuilt.created + defectsBuilt.merged > 0) {
+    console.log(
+      `  ${defectsBuilt.created} new defect report(s), ${defectsBuilt.merged} repeat(s) merged into existing ones.`,
+    );
+  }
+  console.log('  It leads with what did NOT run, then results, then every defect in full');
+  console.log('  bug format with reproduction steps and evidence paths.');
   console.log('');
   console.log('Nothing here is a confirmed defect. Gate 2 is a human reading that report.');
 }
@@ -137,3 +183,42 @@ if (results.length > 0) {
 // Exit code reflects whether a human needs to look, not whether the product is
 // broken — BLOCKED and INCONCLUSIVE both need attention.
 process.exit(results.some((r) => r.status !== 'PASS') ? 1 : 0);
+
+
+/**
+ * Turn this run's failures into defect reports as part of the run itself.
+ *
+ * Previously `npm run defects` was a separate command, so a run could finish
+ * with real failures and produce no ticket until somebody remembered. The
+ * fingerprinting still deduplicates, so re-running a known failure updates its
+ * existing report rather than raising another.
+ */
+function buildDefects(all: ExecutionResult[]): { created: number; merged: number } {
+  let created = 0;
+  let merged = 0;
+  for (const result of all) {
+    const file = files.find((f) => path.basename(f, '.json') === result.test_id);
+    if (!file) continue;
+    const candidate = fromExecution(readMissionFile(file), result, ctx.application.base_url);
+    if (candidate) {
+      const { isNew } = upsert(candidate);
+      if (isNew) created += 1;
+      else merged += 1;
+    }
+    for (const finding of result.incidental_findings ?? []) {
+      const findingCandidate = fromFinding(finding, {
+        url: finding.url ?? ctx.application.base_url,
+        build: result.build,
+        run_id: result.run_id,
+        feature: result.feature,
+        ai_analysis: result.ai_analysis,
+        session: result.session,
+      });
+      const { isNew } = upsert(findingCandidate);
+      if (isNew) created += 1;
+      else merged += 1;
+    }
+  }
+  for (const d of listDefects()) writeDefectReport(d);
+  return { created, merged };
+}

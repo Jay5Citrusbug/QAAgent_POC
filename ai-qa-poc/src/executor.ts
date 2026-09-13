@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import type { ConsoleMessage, Page } from '@playwright/test';
 import { interpolate, MissingTestDataError, NavigationError, performAction } from './actions.js';
 import { evaluateAssertion, summarise } from './assertions.js';
 import { loadAppContext, PATHS, rel, RUNTIME } from './config.js';
+import { AuthMissingError, BrowserLaunchError, BrowserSession, type Lease } from './browser-session.js';
 import { describeCandidates, TargetAmbiguousError, TargetNotFoundError } from './discovery.js';
 import { Evidence, newRunId } from './evidence.js';
 import { LocatorCache } from './locator-cache.js';
@@ -31,17 +32,12 @@ class BudgetExceededError extends Error {
   readonly kind = 'budget_exceeded';
 }
 
-class AuthMissingError extends Error {
-  readonly kind = 'auth_missing';
-}
-
 /**
- * The browser itself would not start. Nothing about the product was exercised,
- * so this must never look like an agent or product problem.
+ * Both are raised by the shared BrowserSession now — a missing seeded session
+ * and a browser that will not start are properties of the session, not of any
+ * one mission. Re-exported names would be two classes with one meaning, and an
+ * `instanceof` check against the wrong one silently misclassifies the failure.
  */
-class BrowserLaunchError extends Error {
-  readonly kind = 'navigation_error';
-}
 
 interface Attempt {
   status: Status;
@@ -66,37 +62,6 @@ export interface RunOptions {
    * first app's base_url and fail in a way that looks like a product defect.
    */
   feature?: string;
-}
-
-function storageStatePath(ref: string): string {
-  return path.join(PATHS.auth, `${ref}.json`);
-}
-
-async function openContext(
-  browser: Browser,
-  mission: TestMission,
-  ev: Evidence,
-): Promise<BrowserContext> {
-  const strategy = mission.auth?.strategy ?? 'storage_state';
-  const opts: Parameters<Browser['newContext']>[0] = { viewport: { width: 1440, height: 900 } };
-
-  if (strategy === 'storage_state') {
-    const ref = mission.auth?.storage_state_ref ?? mission.role.toLowerCase();
-    const file = storageStatePath(ref);
-    if (!fs.existsSync(file)) {
-      // Deliberately not a product defect and deliberately not a FAIL.
-      throw new AuthMissingError(
-        `No seeded session for role "${mission.role}" at ${rel(file)}. ` +
-          `Seed it out-of-band (see README, "Authentication") — the agent never logs in through the UI per mission.`,
-      );
-    }
-    opts.storageState = file;
-    ev.log(`Using seeded session ${rel(file)} for role ${mission.role}.`);
-  } else {
-    ev.log('Running anonymous (no seeded session).');
-  }
-
-  return browser.newContext(opts);
 }
 
 async function runAttempt(
@@ -324,6 +289,30 @@ async function runAttempt(
   };
 }
 
+/**
+ * The browser shared by every mission in this process.
+ *
+ * Created on first use and closed by `closeBrowserSession()` when the run ends.
+ * A single mission run on its own still works: it gets the session, uses it,
+ * and the caller closes it afterwards.
+ */
+let session: BrowserSession | undefined;
+
+function activeSession(): BrowserSession {
+  session ??= new BrowserSession({
+    headless: !RUNTIME.headed,
+    ...(RUNTIME.slowMo ? { slowMo: RUNTIME.slowMo } : {}),
+    alwaysFresh: RUNTIME.freshState ?? false,
+  });
+  return session;
+}
+
+/** Ends the run. Always call this, or Chromium outlives the process. */
+export async function closeBrowserSession(): Promise<void> {
+  await session?.close();
+  session = undefined;
+}
+
 export async function runMission(
   mission: TestMission,
   options: RunOptions = {},
@@ -347,34 +336,27 @@ export async function runMission(
   const evidencePolicy = mission.evidence_policy ?? {};
   const wantTrace = evidencePolicy.trace ?? 'retain_on_failure';
 
-  let browser: Browser | undefined;
-  let context: BrowserContext | undefined;
+  let lease: Lease | undefined;
   let page: Page | undefined;
   let attempt: Attempt | undefined;
   let observer: Observer | undefined;
   let replay: ExecutionResult['replay'];
   let fatal: { kind: FailureKind; message: string } | undefined;
+  let consoleLog: ((msg: ConsoleMessage) => void) | undefined;
 
   try {
-    try {
-      browser = await chromium.launch({ headless: !RUNTIME.headed, slowMo: RUNTIME.slowMo });
-    } catch (err) {
-      throw new BrowserLaunchError(
-        `Chromium would not start: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}. ` +
-          `Run "npm run browsers".`,
-      );
-    }
-    context = await openContext(browser, mission, ev);
+    lease = await activeSession().lease(mission, (line) => ev.log(line), options.isReplay ?? false);
+    page = lease.page;
 
     if (wantTrace !== 'never') {
-      await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
+      await lease.context.tracing.start({ screenshots: true, snapshots: true, sources: false });
     }
 
-    page = await context.newPage();
     if (evidencePolicy.console !== false) {
-      page.on('console', (msg) => {
+      consoleLog = (msg: ConsoleMessage) => {
         if (msg.type() === 'error') ev.log(`  [console error] ${msg.text()}`);
-      });
+      };
+      page.on('console', consoleLog);
     }
 
     // Watch the whole run for problems the mission never asked about. This
@@ -399,7 +381,7 @@ export async function runMission(
     }
 
     if (wantTrace !== 'never') {
-      await context.tracing.stop({ path: ev.tracePath });
+      await lease.context.tracing.stop({ path: ev.tracePath });
       if (wantTrace === 'always' || failed) ev.registerTraceIfPresent();
       else ev.discardTrace();
     }
@@ -415,8 +397,15 @@ export async function runMission(
     fatal = { kind, message: err instanceof Error ? err.message : String(err) };
     ev.log(`Run could not proceed (${kind}): ${fatal.message}`);
   } finally {
-    await context?.close().catch(() => undefined);
-    await browser?.close().catch(() => undefined);
+    /**
+     * Let go of this mission's listeners, but leave the page open: the next
+     * mission inherits it unless it asked for a clean start. A mission that
+     * died fatally is the exception — its page may be mid-navigation or showing
+     * a crash screen, and passing that on would report this failure twice.
+     */
+    observer?.stop();
+    if (consoleLog && page && !page.isClosed()) page.off('console', consoleLog);
+    if (fatal) await activeSession().discard();
   }
 
   // One deterministic replay before we are willing to say FAIL. A single FAIL
@@ -448,6 +437,8 @@ export async function runMission(
       );
     }
     for (const f of second.evidence) ev.add(path.resolve(PATHS.root, f));
+    // Do not let replay mutations become inherited state for the next mission.
+    await activeSession().discard();
   }
 
   const finishedAt = new Date();
@@ -498,6 +489,12 @@ export async function runMission(
     test_objective: mission.test_objective,
     environment: mission.environment,
     role: mission.role,
+    session: {
+      fresh: lease?.fresh ?? true,
+      ...(lease?.inheritedFrom ? { inherited_from: lease.inheritedFrom } : {}),
+      state_policy: mission.execution_policy?.state ?? 'reuse',
+      ...(lease?.resetReason ? { reset_reason: lease.resetReason } : {}),
+    },
     build: RUNTIME.build,
     started_at: startedAt.toISOString(),
     finished_at: finishedAt.toISOString(),

@@ -1,4 +1,4 @@
-import type { Page, Request, Response } from '@playwright/test';
+import type { ConsoleMessage, Page, Request, Response } from '@playwright/test';
 
 /**
  * Ambient observation.
@@ -97,8 +97,31 @@ export class Observer {
     });
   }
 
+  /**
+   * Handlers are kept so they can be detached again.
+   *
+   * A run reuses one page across missions, so an Observer that attached and
+   * never let go would leave the previous mission's listener recording into a
+   * finished findings list — and the page would accumulate one more listener
+   * per mission until Playwright started warning about the leak.
+   */
+  private readonly attached: { event: string; handler: (arg: never) => void }[] = [];
+
+  private listen<T>(event: string, handler: (arg: T) => void): void {
+    this.attached.push({ event, handler: handler as (arg: never) => void });
+    (this.page as unknown as { on(e: string, h: (a: T) => void): void }).on(event, handler);
+  }
+
+  /** Detach everything this observer attached. Safe to call more than once. */
+  stop(): void {
+    for (const { event, handler } of this.attached) {
+      (this.page as unknown as { off(e: string, h: (a: never) => void): void }).off(event, handler);
+    }
+    this.attached.length = 0;
+  }
+
   start(): void {
-    this.page.on('console', (msg) => {
+    this.listen('console', (msg: ConsoleMessage) => {
       if (msg.type() !== 'error') return;
       const text = msg.text();
       if (isNoise(text)) return;
@@ -110,7 +133,7 @@ export class Observer {
       this.record(`console:${text.slice(0, 160)}`, 'console_error', 'medium', 'Console error', text, this.page.url());
     });
 
-    this.page.on('pageerror', (err) => {
+    this.listen('pageerror', (err: Error) => {
       const text = err.message;
       if (isNoise(text)) return;
       // An uncaught exception is the strongest passive signal there is:
@@ -118,7 +141,7 @@ export class Observer {
       this.record(`pageerror:${text.slice(0, 160)}`, 'page_exception', 'high', 'Uncaught page exception', text, this.page.url());
     });
 
-    this.page.on('response', (response: Response) => {
+    this.listen('response', (response: Response) => {
       const status = response.status();
       if (status < 400) return;
       const url = response.url();
@@ -133,7 +156,7 @@ export class Observer {
       );
     });
 
-    this.page.on('requestfailed', (request: Request) => {
+    this.listen('requestfailed', (request: Request) => {
       const url = request.url();
       if (isNoise(url)) return;
       const reason = request.failure()?.errorText ?? 'unknown';

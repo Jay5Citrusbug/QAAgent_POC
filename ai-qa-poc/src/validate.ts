@@ -106,7 +106,7 @@ export function lintMission(m: TestMission): string[] {
     const says = a.statement.toLowerCase();
     const t = a.check.type;
 
-    if (/broken|placeholder|loads?|renders?|displays? correctly/.test(says) && t === 'visible') {
+    if (/broken|placeholder|loads?\b|renders?\b|displays? correctly/.test(says) && t === 'visible') {
       warnings.push(
         `Assertion ${a.id}: the statement promises the image actually loaded, but a "visible" check cannot detect that — ` +
           `a broken image is still visible. Use check type "image_loaded".`,
@@ -120,7 +120,7 @@ export function lintMission(m: TestMission): string[] {
       );
     }
 
-    if (/not.*(empty|blank|missing)/.test(says) && t === 'visible') {
+    if (/\bnot\b.*\b(empty|blank|missing)\b/.test(says) && t === 'visible') {
       warnings.push(
         `Assertion ${a.id}: the statement claims something is not empty/blank, but "visible" only checks the element is rendered. ` +
           `Pick a check that inspects content.`,

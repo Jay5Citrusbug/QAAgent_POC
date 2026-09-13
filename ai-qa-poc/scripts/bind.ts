@@ -238,11 +238,11 @@ const reconciliation = {
   needs_review: needsReview.map((o) => ({
     test_id: o.intent.test_id,
     confidence: o.confidence,
-    exceptions: o.exceptions.map((e) => ({ kind: e.kind, where: e.where })),
+    exceptions: o.exceptions.map((e) => ({ kind: e.kind, where: e.where, summary: e.summary, ...(e.asks ? { asks: e.asks } : {}) })),
   })),
   unbindable: unbindable.map((o) => ({
     test_id: o.intent.test_id,
-    exceptions: o.exceptions.map((e) => ({ kind: e.kind, where: e.where })),
+    exceptions: o.exceptions.map((e) => ({ kind: e.kind, where: e.where, summary: e.summary, ...(e.asks ? { asks: e.asks } : {}) })),
   })),
   uncovered_controls: uncovered.map((u) => ({ url: u.url, role: u.control.role, name: u.control.name })),
 };

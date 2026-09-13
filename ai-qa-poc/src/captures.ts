@@ -26,6 +26,12 @@ export interface Capture {
   build: string;
   base_url?: string;
   pages: PageReality[];
+  /**
+   * States reached partway through a flow — the checkout form, a filtered grid,
+   * a cart with something in it. `pages` only ever holds the initial state of
+   * each URL, and a large class of UI does not exist until someone has acted.
+   */
+  states?: { from: string; afterStep: string; did: string; page: PageReality }[];
 }
 
 export function captureDir(feature?: string): string {
@@ -37,13 +43,19 @@ function stamp(iso: string): string {
   return iso.replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
 }
 
-export function saveCapture(pages: PageReality[], feature?: string, baseUrl?: string): string {
+export function saveCapture(
+  pages: PageReality[],
+  feature?: string,
+  baseUrl?: string,
+  states?: Capture['states'],
+): string {
   const capture: Capture = {
     feature: feature ?? 'default',
     captured_at: new Date().toISOString(),
     build: RUNTIME.build,
     ...(baseUrl ? { base_url: baseUrl } : {}),
     pages,
+    ...(states && states.length ? { states } : {}),
   };
 
   const dir = captureDir(feature);

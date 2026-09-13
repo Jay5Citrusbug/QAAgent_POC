@@ -196,7 +196,7 @@ const testDirs = fs
 let created = 0;
 let merged = 0;
 let fromFindings = 0;
-let passed = 0;
+let ignored = 0;
 
 for (const testId of testDirs) {
   const mission = loadMission(testId);
@@ -218,7 +218,7 @@ for (const testId of testDirs) {
     if (mission) {
       const candidate = fromExecution(mission, result, baseUrl);
       if (!candidate) {
-        passed += 1;
+        ignored += 1;
       } else {
         const { isNew } = upsert(candidate);
         isNew ? (created += 1) : (merged += 1);
@@ -253,7 +253,7 @@ console.log('');
 console.log(`  new defect reports        ${created}`);
 console.log(`  repeats merged            ${merged}`);
 console.log(`  from exploration findings ${fromFindings}`);
-console.log(`  passing runs ignored      ${passed}`);
+console.log(`  non-defect results ignored ${ignored}`);
 console.log('');
 console.log(`${all.length} report(s) in ${rel(PATHS.defects)}, ${candidates.length} awaiting Gate 2.`);
 

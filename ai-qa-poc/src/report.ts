@@ -138,6 +138,18 @@ export function buildReport(results: ExecutionResult[]): string {
         for (const n of r.notes) lines.push(`* ${n}`);
         lines.push('');
       }
+
+      if (r.ai_analysis?.status === 'available') {
+        lines.push('**AI execution analysis**');
+        lines.push('');
+        lines.push(`* **Likely cause:** ${r.ai_analysis.likely_cause ?? 'inconclusive'} (confidence ${r.ai_analysis.confidence ?? 'LOW'})`);
+        if (r.ai_analysis.summary) lines.push(`* ${r.ai_analysis.summary}`);
+        for (const fact of r.ai_analysis.evidence ?? []) lines.push(`* Evidence: ${fact}`);
+        for (const check of r.ai_analysis.follow_up ?? []) lines.push(`* Follow-up: ${check}`);
+        lines.push('');
+        lines.push('_AI analysis is advisory. The deterministic result and human Gate 2 decision remain authoritative._');
+        lines.push('');
+      }
     }
   }
 

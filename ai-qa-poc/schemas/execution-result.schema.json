@@ -30,6 +30,17 @@
     "test_objective": { "type": "string", "description": "Copied from the mission so a report is readable without opening it." },
     "environment": { "type": "string" },
     "role": { "type": "string" },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fresh", "state_policy"],
+      "properties": {
+        "fresh": { "type": "boolean" },
+        "inherited_from": { "type": "string" },
+        "state_policy": { "type": "string", "enum": ["reuse", "fresh_page", "fresh_context", "read_only"] },
+        "reset_reason": { "type": "string" }
+      }
+    },
     "build": { "type": "string", "description": "Build/commit under test, if known." },
     "started_at": { "type": "string", "format": "date-time" },
     "finished_at": { "type": "string", "format": "date-time" },
@@ -188,6 +199,22 @@
           "count": { "type": "integer" },
           "first_seen_step": { "type": "integer" }
         }
+      }
+    },
+
+    "ai_analysis": {
+      "type": "object",
+      "description": "Optional post-execution AI analysis. It observes the deterministic result and never changes mission status or classification.",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["available", "skipped", "failed"] },
+        "model": { "type": "string" },
+        "summary": { "type": "string" },
+        "likely_cause": { "type": "string", "enum": ["product_defect", "test_or_binding_problem", "environment_problem", "inconclusive"] },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+        "evidence": { "type": "array", "items": { "type": "string" } },
+        "follow_up": { "type": "array", "items": { "type": "string" } },
+        "error": { "type": "string" }
       }
     },
 

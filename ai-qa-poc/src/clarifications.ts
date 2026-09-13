@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import { featurePaths } from './config.js';
+import { featurePaths, PATHS } from './config.js';
 
 /**
  * The clarification ledger.
@@ -174,6 +174,69 @@ export function renderLedger(ledger: Ledger): string | undefined {
   );
 
   return lines.join('\n');
+}
+
+/**
+ * Which half of the Thinking Agent's job is due next.
+ *
+ * The agent used to do both halves in one pass: analyse, raise the gaps, and
+ * write every intent anyway with `depends_on_clarifications` declared. The
+ * file-level gate still caught those intents at Gate 1, so nothing unsafe
+ * reached execution — but the intents resting on an unanswered question had to
+ * be rewritten once the answer arrived, and regenerating a whole set to correct
+ * three of them is pure waste. Worse, it puts the question in front of a human
+ * *after* the work that depended on it, which is exactly backwards.
+ *
+ * So the two halves are now separate runs, and which one is due is read off
+ * disk rather than remembered:
+ *
+ *   analyse   no analysis exists for this feature yet → read the requirement,
+ *             raise the gaps, and stop. Write no intents.
+ *   blocked   the analysis exists but questions are still open → a human
+ *             answers them; generating now would bake in a guess.
+ *   generate  the analysis exists and nothing is open → write the intents,
+ *             every one of them against a settled requirement.
+ *
+ * A feature whose requirement genuinely raises no questions moves straight from
+ * `analyse` to `generate` on the next run, because the analysis file is what
+ * marks the first half done — not the presence of questions.
+ */
+export type ThinkingPhase =
+  | { phase: 'analyse'; reason: string; open: Clarification[] }
+  | { phase: 'blocked'; reason: string; open: Clarification[] }
+  | { phase: 'generate'; reason: string; open: Clarification[] };
+
+/** Has the analysis half been done for this feature? */
+export function hasAnalysis(feature?: string): boolean {
+  if (!fs.existsSync(PATHS.thinkingAnalysis)) return false;
+  const prefix = `${feature ?? 'default'}-`;
+  return fs
+    .readdirSync(PATHS.thinkingAnalysis)
+    .some((f) => f.startsWith(prefix) && f.endsWith('.md'));
+}
+
+export function thinkingPhase(feature?: string): ThinkingPhase {
+  const open = loadLedger(feature).questions.filter((q) => q.status === 'open');
+
+  if (!hasAnalysis(feature)) {
+    return {
+      phase: 'analyse',
+      open,
+      reason: `No analysis exists yet for ${feature ?? 'the default feature'}.`,
+    };
+  }
+  if (open.length > 0) {
+    return {
+      phase: 'blocked',
+      open,
+      reason: `${open.length} question(s) still unanswered.`,
+    };
+  }
+  return {
+    phase: 'generate',
+    open,
+    reason: 'The analysis is done and every question it raised has been answered.',
+  };
 }
 
 /** Next free id, so appended questions do not collide. */

@@ -71,18 +71,29 @@ You do **not** execute anything. You do **not** write Playwright code. You do
    confident false defect, and a false defect costs more human QA time than
    reporting nothing at all.
 
-   **[R3] This is now a gate, not advice.** Raise the gap as a numbered question
-   in your analysis, in the ledger format. Then, if a test genuinely depends on
-   the answer, write the intent anyway and declare the dependency:
+   **[R5] Ask first. Do not write the test and ask afterwards.**
 
-   ```json
-   "depends_on_clarifications": ["Q-1"]
-   ```
+   R3 told you to raise the question *and* write the dependent intent anyway
+   with `depends_on_clarifications` declared. That was wrong, and it cost real
+   work: it puts the question in front of the human **after** the thing that
+   depends on it, and every dependent intent has to be rewritten once they
+   answer. Generating twenty-three intents to correct three of them is waste
+   with nothing to show for it.
 
-   `npm run approve-intent` refuses while that question is open, so the intent
-   cannot reach execution on a guess. Writing the question and the intent
-   together is the honest order — it shows the reviewer exactly what is riding
-   on the answer, which is what gets questions answered.
+   The job is now two separate runs, and `npm run think` tells you which one
+   you are on:
+
+   * **Analyse & ask** — read the requirement, find every gap, write the
+     analysis, and put the questions to the human **in the chat** as a short
+     numbered list. Write **no intents at all**, not even declared-dependency
+     ones. Then stop.
+   * **Generate** — only once the answers are recorded. Now every intent is
+     written against a settled requirement, correctly, the first time.
+
+   `depends_on_clarifications` still exists and is still enforced by
+   `npm run approve-intent`: it is the safety net for a question that slips
+   through, not the normal path. If you find a new gap while generating, stop
+   and raise it rather than guessing.
 
    Do not resolve a gap by picking the likelier option and noting it. That
    produces a test that grades the product against a rule nobody chose.

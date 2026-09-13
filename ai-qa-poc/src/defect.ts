@@ -64,6 +64,18 @@ export interface DefectCandidate {
     confidence?: string;
     rationale?: string[];
   };
+  ai_analysis?: {
+    summary?: string;
+    likely_cause?: string;
+    confidence?: string;
+    evidence?: string[];
+    follow_up?: string[];
+  };
+  session?: {
+    fresh: boolean;
+    inherited_from?: string;
+    state_policy: string;
+  };
   rests_on_assumption?: boolean;
   first_seen: string;
   last_seen?: string;
@@ -184,7 +196,7 @@ export function fromExecution(
   // A pass is not a defect, and a BLOCKED run usually means the environment or
   // the test data, not the product. Raising those as bugs is how a developer
   // learns to ignore this queue.
-  if (result.status === 'PASS') return undefined;
+  if (result.status !== 'FAIL' || result.failure_classification !== 'PRODUCT_DEFECT') return undefined;
 
   const failed = (result.assertion_results ?? []).filter((a) => !a.passed);
   const firstFailed = failed[0];
@@ -194,13 +206,12 @@ export function fromExecution(
   const what = firstFailed?.statement ?? failedStep?.instruction ?? mission.test_objective;
 
   const title = `[${mission.feature}] ${what.replace(/\.$/, '')}`;
+  const cause = firstFailed?.error ?? firstFailed?.observed ?? failedStep?.error ?? result.actual.join(' ');
+  const resource = cause.match(/https?:\/\/[^\s)"']+/)?.[0];
 
   return {
     fingerprint: fingerprint([
-      mission.test_id,
-      firstFailed?.id ?? failedStep?.index?.toString(),
-      result.failure_kind,
-      firstFailed?.error ?? failedStep?.error ?? result.actual.join(' '),
+      ...(resource ? ['resource', resource] : [mission.feature, result.failure_kind, firstFailed?.statement, cause]),
     ]),
     title: title.length > 120 ? `${title.slice(0, 117)}...` : title,
     source: 'mission',
@@ -250,6 +261,18 @@ export function fromExecution(
       ...(result.confidence ? { confidence: result.confidence } : {}),
       ...(result.classification_rationale?.length ? { rationale: result.classification_rationale } : {}),
     },
+    ...(result.ai_analysis?.status === 'available'
+      ? {
+          ai_analysis: {
+            summary: result.ai_analysis.summary,
+            likely_cause: result.ai_analysis.likely_cause,
+            confidence: result.ai_analysis.confidence,
+            evidence: result.ai_analysis.evidence,
+            follow_up: result.ai_analysis.follow_up,
+          },
+        }
+      : {}),
+    ...(result.session ? { session: result.session } : {}),
     ...(mission.binding?.rests_on_assumption ? { rests_on_assumption: true } : {}),
     first_seen: now,
     last_seen: now,
@@ -300,7 +323,14 @@ function findingIdentity(
 
 export function fromFinding(
   finding: NonNullable<ExecutionResult['incidental_findings']>[number],
-  context: { url?: string; build?: string; run_id?: string; feature?: string },
+  context: {
+    url?: string;
+    build?: string;
+    run_id?: string;
+    feature?: string;
+    ai_analysis?: ExecutionResult['ai_analysis'];
+    session?: ExecutionResult['session'];
+  },
 ): DefectCandidate {
   const now = new Date().toISOString();
   const url = finding.url ?? context.url ?? '(unknown page)';
@@ -326,6 +356,18 @@ export function fromFinding(
     steps_to_reproduce: [`1. Open ${url}`, '2. Observe the behaviour described above.'],
     expected: 'Not stated by any requirement — this is an observation, and someone who knows the product must decide whether it is a defect.',
     actual: finding.detail ?? finding.summary,
+    ...(context.ai_analysis?.status === 'available'
+      ? {
+          ai_analysis: {
+            summary: context.ai_analysis.summary,
+            likely_cause: context.ai_analysis.likely_cause,
+            confidence: context.ai_analysis.confidence,
+            evidence: context.ai_analysis.evidence,
+            follow_up: context.ai_analysis.follow_up,
+          },
+        }
+      : {}),
+    ...(context.session ? { session: context.session } : {}),
     first_seen: now,
     last_seen: now,
     occurrences: 1,
@@ -439,6 +481,10 @@ export function renderDefect(d: DefectCandidate): string {
   if (d.environment.browser) L.push(`| **Browser** | ${d.environment.browser} |`);
   if (d.environment.role) L.push(`| **Role** | ${d.environment.role} |`);
   if (d.environment.observed_at) L.push(`| **Observed** | ${d.environment.observed_at} |`);
+  if (d.session) {
+    const state = d.session.fresh ? 'fresh' : `inherited${d.session.inherited_from ? ` from ${d.session.inherited_from}` : ''}`;
+    L.push(`| **Browser state** | ${state} (${d.session.state_policy}) |`);
+  }
   if (d.occurrences > 1) {
     L.push(`| **Seen** | ${d.occurrences} times, builds: ${(d.seen_in_builds ?? []).join(', ')} |`);
   }
@@ -492,6 +538,15 @@ export function renderDefect(d: DefectCandidate): string {
       '_agent that just failed is the least reliable narrator of why. A human decides._',
       '',
     );
+  }
+
+  if (d.ai_analysis?.summary) {
+    L.push('## AI execution analysis', '');
+    L.push(`**Likely cause:** ${d.ai_analysis.likely_cause ?? 'inconclusive'}${d.ai_analysis.confidence ? ` (confidence ${d.ai_analysis.confidence})` : ''}`, '');
+    L.push(d.ai_analysis.summary, '');
+    for (const evidence of d.ai_analysis.evidence ?? []) L.push(`* Evidence: ${evidence}`);
+    for (const followUp of d.ai_analysis.follow_up ?? []) L.push(`* Follow-up: ${followUp}`);
+    L.push('', '_Advisory only. The deterministic result and human Gate 2 decision remain authoritative._', '');
   }
 
   L.push('---', '');

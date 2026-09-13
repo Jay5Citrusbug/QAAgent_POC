@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import YAML from 'yaml';
+import { featurePaths } from './config.js';
 import type { CoverageCategory, TestIntent, TestMission } from './types.js';
 
 /**
@@ -234,4 +238,41 @@ export function renderCoverage(report: CoverageReport): string {
   );
 
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Coverage exclusions
+// ---------------------------------------------------------------------------
+
+/**
+ * "This category does not apply, and here is why."
+ *
+ * The checklist has always said a category that does not apply must be *named*
+ * with a reason, because silence and "considered and ruled out" read
+ * identically. That reason lived in prose in the analysis, where no tool could
+ * see it — so `--check` had no way to tell a genuine non-applicable category
+ * from one nobody thought about, and would have nagged about it on every run
+ * forever.
+ *
+ * Recording it here makes the judgement machine-readable and permanent: write
+ * the reason once, and the gate stops asking. It is deliberately a file a human
+ * edits and signs, not something the generator can grant itself — an agent that
+ * could exclude its own gaps would simply exclude the hard ones.
+ */
+export interface CoverageExclusion {
+  category: string;
+  reason: string;
+  decided_by?: string;
+  decided_at?: string;
+}
+
+export function exclusionsFile(feature?: string): string {
+  return path.join(featurePaths(feature).requirementDir, 'coverage-exclusions.yaml');
+}
+
+export function loadExclusions(feature?: string): CoverageExclusion[] {
+  const file = exclusionsFile(feature);
+  if (!fs.existsSync(file)) return [];
+  const parsed = YAML.parse(fs.readFileSync(file, 'utf8')) as { exclusions?: CoverageExclusion[] } | null;
+  return (parsed?.exclusions ?? []).filter((e) => e && e.category && e.reason);
 }

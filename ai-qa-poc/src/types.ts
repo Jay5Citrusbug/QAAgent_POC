@@ -173,6 +173,9 @@ export interface TestMission {
     action_timeout_ms?: number;
     max_discovery_attempts?: number;
   };
+  execution_policy?: {
+    state?: 'reuse' | 'fresh_page' | 'fresh_context' | 'read_only';
+  };
   rerun_policy?: { replay_on_failure?: boolean; on_divergence?: 'INCONCLUSIVE' };
   /** [R4] Provenance from phase 2a. Absent on hand-written missions. */
   binding?: {
@@ -233,6 +236,12 @@ export interface ExecutionResult {
   test_objective?: string;
   environment?: string;
   role?: string;
+  session?: {
+    fresh: boolean;
+    inherited_from?: string;
+    state_policy: 'reuse' | 'fresh_page' | 'fresh_context' | 'read_only';
+    reset_reason?: string;
+  };
   build?: string;
   started_at?: string;
   finished_at?: string;
@@ -274,6 +283,16 @@ export interface ExecutionResult {
     count: number;
     first_seen_step?: number;
   }[];
+  ai_analysis?: {
+    status: 'available' | 'skipped' | 'failed';
+    model?: string;
+    summary?: string;
+    likely_cause?: 'product_defect' | 'test_or_binding_problem' | 'environment_problem' | 'inconclusive';
+    confidence?: Confidence;
+    evidence?: string[];
+    follow_up?: string[];
+    error?: string;
+  };
   failure_classification: FailureClassification | null;
   classification_source?: 'classifier' | 'human' | 'none';
   classification_rationale?: string[];

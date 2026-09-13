@@ -20,6 +20,8 @@ import path from 'node:path';
 import { loadAppContext, PATHS, rel } from '../src/config.js';
 import { inspectPage, renderReality, type PageReality } from '../src/inspector.js';
 import { capturePair, saveCapture } from '../src/captures.js';
+import { captureFlows } from '../src/flow-capture.js';
+import { listIntents, readIntentFile } from '../src/intents.js';
 import { diffCaptures, renderDiff } from '../src/build-diff.js';
 
 function flag(name: string): string | undefined {
@@ -104,7 +106,36 @@ console.log(`Observed state written: ${rel(file)}`);
 // [R4] Keep the structured capture too. The markdown above is overwritten
 // every run because the prompt pack wants what is true now; the capture is
 // never overwritten, because a build diff needs the page as it was.
-const captureFile = saveCapture(results, featureName, baseUrl);
+/**
+ * Walk the flows the approved intents describe, and capture what appears.
+ *
+ * The pages above are every URL in its initial state. That is not what a user
+ * sees for most of a session — the checkout form, a filtered grid and a cart
+ * with contents all exist only after somebody has acted, and binding against a
+ * snapshot that never contained them is why a whole class of approved tests
+ * could never run. The intents already describe those paths, so no new
+ * configuration is needed: a new requirement gets this for free.
+ *
+ * Skipped with --no-flows when only a quick look at the pages is wanted.
+ */
+let flowStates: Awaited<ReturnType<typeof captureFlows>> = [];
+if (!process.argv.includes('--no-flows')) {
+  const intents = listIntents(PATHS.intentsApproved)
+    .map(readIntentFile)
+    .filter((i) => (featureName ? i.feature === featureName : true));
+
+  if (intents.length > 0) {
+    console.log('');
+    process.stdout.write(`  walking ${Math.min(intents.length, 12)} approved flow(s) ... `);
+    flowStates = await captureFlows(intents, baseUrl, { headless: true });
+    console.log(`${flowStates.length} distinct state(s) reached`);
+    for (const s of flowStates.slice(0, 8)) {
+      console.log(`    ${s.from} ${s.afterStep}: ${new URL(s.page.url).pathname} — ${s.page.controls.length} control name(s)`);
+    }
+  }
+}
+
+const captureFile = saveCapture(results, featureName, baseUrl, flowStates);
 console.log(`Capture kept        : ${rel(captureFile)}`);
 
 const { current, previous } = capturePair(featureName);

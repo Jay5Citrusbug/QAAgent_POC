@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PATHS } from '../src/config.js';
-import { buildCoverage, renderCoverage } from '../src/coverage.js';
+import { buildCoverage, loadExclusions, renderCoverage } from '../src/coverage.js';
 import { readMissionFile } from '../src/validate.js';
 import { listIntents, readIntentFile } from '../src/intents.js';
 import type { TestIntent, TestMission } from '../src/types.js';
@@ -23,6 +23,8 @@ function flag(name: string): string | undefined {
 }
 
 const prefix = flag('prefix')?.toUpperCase();
+/** Exclusions are per feature, so --check needs to know which one. */
+const featureName = flag('feature');
 
 function collect(dir: string): TestMission[] {
   if (!fs.existsSync(dir)) return [];
@@ -44,7 +46,20 @@ const missions = [...collect(PATHS.missionsDraft), ...collect(PATHS.missionsAppr
  * they are different errors: one is nobody thought of it, the other is nobody
  * has run it yet.
  */
-const intents: TestIntent[] = listIntents(PATHS.intentsApproved)
+/**
+ * [R5] Drafts count too, when asked for.
+ *
+ * Approved-only is right for "what does this feature actually cover" — a draft
+ * has proven nothing. It is exactly wrong while the intents are being written,
+ * which is the moment a missing category is cheap to fix. `--drafts` includes
+ * them so the author can audit their own set before asking anyone to review it.
+ */
+const includeDrafts = process.argv.includes('--drafts') || process.argv.includes('--check');
+
+const intents: TestIntent[] = [
+  ...listIntents(PATHS.intentsApproved),
+  ...(includeDrafts ? listIntents(PATHS.intentsDraft) : []),
+]
   .map(readIntentFile)
   .filter((i) => !prefix || i.test_id.toUpperCase().startsWith(`${prefix}-`));
 
@@ -53,7 +68,62 @@ if (missions.length === 0 && intents.length === 0) {
   process.exit(1);
 }
 
+const report = buildCoverage(missions, intents);
+
 console.log('');
 if (prefix) console.log(`Feature prefix: ${prefix}-`);
-console.log(renderCoverage(buildCoverage(missions, intents)));
+if (includeDrafts) console.log('Including draft intents (--drafts).');
+console.log(renderCoverage(report));
 console.log('');
+
+/**
+ * `--check` — the gate.
+ *
+ * A reminder in a document is a rule that quietly stops happening. This fails
+ * with a non-zero exit when a category the executor CAN run has nothing
+ * covering it, so "did you check coverage?" stops being a question anyone has
+ * to remember to ask.
+ *
+ * Deliberately narrow: it only fails on categories that are automatable and
+ * empty. A category that genuinely does not apply is not something a tool can
+ * judge — that verdict belongs in the analysis, in a human's words, and
+ * `gapsManualOnly` is reported rather than failed for the same reason.
+ */
+if (process.argv.includes('--check')) {
+  /**
+   * A category is settled when it is either covered, or explicitly excluded
+   * with a written reason. Anything else is silence, and silence is the thing
+   * this gate exists to catch.
+   */
+  const excluded = loadExclusions(featureName);
+  const excludedLabels = new Set(excluded.map((e) => e.category.toLowerCase()));
+  const unaddressed = report.gapsAutomatable.filter(
+    (g) => !excludedLabels.has(g.key.toLowerCase()) && !excludedLabels.has(g.label.toLowerCase()),
+  );
+
+  if (excluded.length > 0) {
+    console.log('Recorded as not applicable to this feature:');
+    for (const e of excluded) console.log(`  - ${e.category}: ${e.reason}`);
+    console.log('');
+  }
+
+  if (unaddressed.length === 0) {
+    console.log('✓ Every automatable category has at least one intent or mission.');
+    if (report.gapsManualOnly.length > 0) {
+      console.log('');
+      console.log('Still needing a human (reported, not failed):');
+      for (const g of report.gapsManualOnly) console.log(`  - ${g.label}: ${g.limit ?? ''}`);
+    }
+    process.exit(0);
+  }
+
+  console.error(`✗ ${unaddressed.length} automatable category(s) have nothing covering them:`);
+  console.error('');
+  for (const g of unaddressed) console.error(`  - ${g.label}`);
+  console.error('');
+  console.error('Each one needs a verdict, not silence — either an intent whose PRIMARY');
+  console.error('coverage.category is that category, or an explicit "does not apply,');
+  console.error('because ..." in section 4 of the analysis. A category listed only as a');
+  console.error('secondary_categories entry does not count: the report counts primaries.');
+  process.exit(1);
+}

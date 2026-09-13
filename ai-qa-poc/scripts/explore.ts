@@ -198,7 +198,10 @@ if (diff) {
 }
 
 fs.mkdirSync(PATHS.reports, { recursive: true });
-const outFile = path.join(PATHS.reports, `exploration-${featureName ?? 'default'}-${stamp}.md`);
+// One file per feature, rewritten in place. A dated file per run left a
+// directory of near-identical reports where the current one was whichever
+// had the longest name. There is only ever one current answer.
+const outFile = path.join(PATHS.reports, `EXPLORATION-REPORT-${featureName ?? 'default'}.md`);
 fs.writeFileSync(outFile, `${lines.join('\n')}\n`, 'utf8');
 
 /**

@@ -22,7 +22,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { featurePaths, loadThinkingConfig, PATHS, rel } from '../src/config.js';
 import { buildHistory, renderHistory } from '../src/history.js';
-import { ledgerPath, loadLedger, renderLedger } from '../src/clarifications.js';
+import { ledgerPath, loadLedger, renderLedger, thinkingPhase } from '../src/clarifications.js';
+import { buildCoverage, loadExclusions } from '../src/coverage.js';
+import { listIntents, readIntentFile } from '../src/intents.js';
+import { readMissionFile } from '../src/validate.js';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -70,6 +73,17 @@ const intentSchema = readIfPresent(path.join(PATHS.schemas, 'test-intent.schema.
  */
 const ledgerFile = ledgerPath(featureName);
 const ledgerSection = renderLedger(loadLedger(featureName));
+
+/**
+ * Which half of the job this pack is for — see `thinkingPhase`.
+ *
+ * `--generate` forces the second half, for the case where the questions were
+ * settled somewhere this cannot see (a call, a thread) and re-asking would
+ * just be ceremony. It is deliberately explicit rather than inferred.
+ */
+const phase = process.argv.includes('--generate')
+  ? ({ phase: 'generate' as const, open: [], reason: 'Forced with --generate.' })
+  : thinkingPhase(featureName);
 const analysisTemplate = readIfPresent(path.join(PATHS.thinking, 'ANALYSIS_TEMPLATE.md'));
 const coverageChecklist = readIfPresent(path.join(PATHS.thinking, 'COVERAGE_CHECKLIST.md'));
 const observed = readIfPresent(
@@ -142,6 +156,169 @@ if (!requirement) {
 const today = new Date().toISOString().slice(0, 10);
 
 const ledgerBlock = ledgerSection ? '---\n\n' + ledgerSection + '\n' : '';
+
+/**
+ * The coverage mandate, repeated in every phase.
+ *
+ * Asking the agent to "consider every category" as prose produced a set that
+ * silently had no primary mission for input_validation, edge_case,
+ * error_handling or security — and the omission was invisible until someone
+ * audited it by hand afterwards. Naming the categories inline, and requiring a
+ * verdict on each one, is what makes the omission impossible to leave implicit.
+ */
+/**
+ * What is actually uncovered right now, computed from disk.
+ *
+ * The mandate tells the agent to cover every category. This tells it which ones
+ * are *currently* missing, so the instruction is specific rather than a
+ * principle it can satisfy in its own estimation. Without it, "work through
+ * every category" produced a set with four categories silently empty and nobody
+ * noticed until it was audited by hand.
+ */
+function collectMissions(dir: string) {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => readMissionFile(path.join(dir, f)));
+}
+
+const coverageState = (() => {
+  const missions = [...collectMissions(PATHS.missionsDraft), ...collectMissions(PATHS.missionsApproved)];
+  const intents = [...listIntents(PATHS.intentsDraft), ...listIntents(PATHS.intentsApproved)].map(readIntentFile);
+  const report = buildCoverage(missions, intents);
+  const excluded = new Set(loadExclusions(featureName).map((e) => e.category.toLowerCase()));
+  const open = report.gapsAutomatable.filter(
+    (g) => !excluded.has(g.key.toLowerCase()) && !excluded.has(g.label.toLowerCase()),
+  );
+  if (open.length === 0) {
+    return 'Every automatable category currently has at least one intent or mission, or is recorded as not applicable in coverage-exclusions.yaml. Keep it that way.';
+  }
+  return [
+    'These automatable categories have **nothing** covering them right now:',
+    '',
+    ...open.map((g) => '* `' + g.key + '` — ' + g.label),
+    '',
+    'Each needs an intent whose PRIMARY `coverage.category` is that category, or a',
+    'human-recorded exclusion. Do not leave any of them unmentioned.',
+  ].join('\n');
+})();
+
+const COVERAGE_MANDATE = [
+  '## Coverage is mandatory, and it is checked',
+  '',
+  'Work through **every** category in the checklist above and give each one a',
+  'verdict. There are only three acceptable verdicts per category:',
+  '',
+  '1. **Covered** — name the intent(s) that cover it as their PRIMARY',
+  '   `coverage.category`. A category listed only as a `secondary_categories`',
+  '   entry does NOT count as covered; the report counts primary categories only.',
+  '2. **Applies, cannot be automated** — write the intent anyway with',
+  '   `execution_mode: "manual"` and a `manual_reason` naming the missing',
+  '   capability, so a human schedules it instead of it being forgotten.',
+  '3. **Does not apply** — say so explicitly, with the reason, in section 4 of',
+  '   the analysis. "This feature has no authentication, so `security` does not',
+  '   apply" is a finding. Silence is not.',
+  '',
+  'A category you simply did not mention is the failure mode here. `npm run',
+  'coverage -- --check` fails the build on exactly that, so an unmentioned',
+  'category will be caught — write the verdict rather than leaving it implicit.',
+  '',
+  'Cover the **end-to-end flow**, not only individual screens: the path a real',
+  'user takes from arriving to completing the feature\'s main job, including what',
+  'happens when they get something wrong along the way.',
+  '',
+  '### Current state, read from disk just now',
+  '',
+  coverageState,
+].join('\n');
+
+/**
+ * [R5] Two phases, never both in one pass.
+ *
+ * See `thinkingPhase` for why. In short: raising a question and then writing
+ * the intents that depend on it in the same breath puts the question in front
+ * of a human after the work, and forces a regenerate once they answer.
+ */
+const taskSection =
+  phase.phase === 'generate'
+    ? [
+        '# Your task — write the intents',
+        '',
+        'The analysis is done and every question it raised has been answered. The',
+        'answers above are part of the requirement now; treat them exactly as you',
+        'would treat a sentence in `requirement.md`.',
+        '',
+        '**Produce draft test intents** as separate JSON objects, each labelled with',
+        'the filename it should be saved as (`intents/draft/<TEST_ID>.json`).',
+        '',
+        'Rules that decide whether your output is usable:',
+        '',
+        '* **An intent names no UI.** No role, no accessible name, no selector, no',
+        '  "click the button in the top right". Write what the actor is trying to',
+        '  achieve. If you cannot say it without naming a control, it is a binding',
+        '  detail and it belongs to binding time, not to you.',
+        '* Every outcome needs a human `statement` and an `observable` saying what kind',
+        '  of evidence would settle it.',
+        '* A `blocked` intent must assert **what the user is told**, not only that',
+        '  nothing happened. "Not signed in" is equally true of a correct refusal and',
+        '  of a crash.',
+        '* If you find a NEW gap at this stage — something the analysis missed — stop',
+        '  and raise it rather than writing an intent that guesses. A late question is',
+        '  cheaper than a wrong test.',
+        '* Say in `test_data` what **state** the data must be in, and how it is',
+        '  provisioned. `unknown` is an honest and useful answer.',
+        '* Mark data `disposable` when the test consumes it.',
+        '* Fill `requirement_ref` with the file path and the sentence it comes from.',
+        '* Tag every intent with `coverage.category`, and mark anything the browser',
+        '  agent cannot run as `execution_mode: "manual"` with a reason.',
+        '* Use `not_verifiable_yet` for what the intent *should* check but nothing can.',
+        '',
+        COVERAGE_MANDATE,
+        '',
+        'Then stop. A human decides what gets approved — you are not the gate.',
+      ].join('\n')
+    : [
+        '# Your task — analyse and ask. Do NOT write any intents yet.',
+        '',
+        phase.phase === 'blocked'
+          ? `**${phase.open.length} question(s) from the last analysis are still unanswered.** Until a human answers them, generating intents would bake a guess into each one. List what is still open and stop.`
+          : 'This is the first half of the job. You are reading the requirement to find what it does **not** say — not to produce tests yet.',
+        '',
+        '1. **Analyse the requirement** in the structure given above, and save it to',
+        `   \`thinking/analysis/${featureName ?? '<feature>'}-${today}.md\`.`,
+        '',
+        '2. **Ask your questions.** Put every gap where the requirement is silent or',
+        '   ambiguous under its own heading, in the ledger format below, so a human can',
+        '   paste them straight into `clarifications.yaml`:',
+        '',
+        '   ```yaml',
+        '   - id: Q-<next>',
+        '     question: >-',
+        '       ...',
+        '     why: >-',
+        '       which test is stuck, or what breaks if we guess',
+        '     status: open',
+        '     answer: null',
+        '   ```',
+        '',
+        '   Do not repeat a question the ledger above already carries.',
+        '',
+        '3. **Write no intents. Not one** — not even with',
+        '   `depends_on_clarifications` declared. An earlier version of this prompt',
+        '   told you to write them anyway and declare the dependency; that was wrong.',
+        '   It puts the question in front of the human *after* the work that depends',
+        '   on it, and every dependent intent has to be rewritten once they answer.',
+        '',
+        '**Ask the questions in the chat as well**, as a short numbered list, so the',
+        'human can answer without opening a file. That conversation is the point of',
+        'this phase.',
+        '',
+        COVERAGE_MANDATE,
+        '',
+        'Once the answers are recorded, `npm run think` switches to the generate',
+        'phase on its own and asks for the intents.',
+      ].join('\n');
 
 /**
  * [R3] Which contracts the agent is held to on this run.
@@ -272,55 +449,7 @@ ${analysisTemplate ?? '(template missing)'}
 
 ---
 
-# Your task
-
-1. **Analyse the requirement** in the structure above. Gaps are questions for
-   the requirement author — never blanks you fill in with something plausible.
-
-2. **List new clarification questions** under their own heading, in the ledger
-   format, so a human can paste them straight into \`clarifications.yaml\`:
-
-   \`\`\`yaml
-   - id: Q-<next>
-     question: >-
-       ...
-     why: >-
-       which intent is stuck, or what breaks if we guess
-     status: open
-     answer: null
-   \`\`\`
-
-   Do not repeat a question the ledger above already carries.
-
-3. **Produce draft test intents** as separate JSON objects, each labelled with
-   the filename it should be saved as (\`intents/draft/<TEST_ID>.json\`).
-
-Rules that decide whether your output is usable:
-
-* **An intent names no UI.** No role, no accessible name, no selector, no
-  "click the button in the top right". Write what the actor is trying to achieve.
-  If you cannot say it without naming a control, it is a binding detail and it
-  belongs to binding time, not to you.
-* Every outcome needs a human \`statement\` and an \`observable\` saying what kind
-  of evidence would settle it.
-* A \`blocked\` intent must assert **what the user is told**, not only that nothing
-  happened. "Not signed in" is equally true of a correct refusal and of a crash.
-* Anything resting on an unanswered question declares it in
-  \`depends_on_clarifications\`. Do not guess the answer to make the intent
-  writable — a declared dependency is the correct output.
-* Say in \`test_data\` what **state** the data must be in, and how it is
-  provisioned. \`unknown\` is an honest and useful answer: it lists, before anyone
-  wastes a sprint, exactly which intents have no way to run yet.
-* Mark data \`disposable\` when the test consumes it — a lockout test poisons the
-  account for every later run, and that needs a fresh instance, not cleanup.
-* Fill \`requirement_ref\` with the file path and the sentence the intent comes from.
-* Tag every intent with \`coverage.category\`, and mark anything the browser agent
-  cannot run as \`execution_mode: "manual"\` with a reason.
-* Use \`not_verifiable_yet\` for what the intent *should* check but nothing can —
-  no API client, no database, no visual comparison. An unstated hole is how a
-  suite comes to look more complete than it is.
-
-Then stop. A human decides what gets approved — you are not the gate.
+${taskSection}
 `;
 
 fs.mkdirSync(PATHS.thinkingPrompts, { recursive: true });
@@ -343,6 +472,12 @@ const approxCost = ((approxTokens / 1_000_000) * 5).toFixed(3);
 console.log(`Prompt pack written: ${rel(outFile)}`);
 console.log('');
 console.log(`  Model            ${cfg.model} (effort ${cfg.effort})`);
+console.log(
+  `  Phase            ${
+    phase.phase === 'generate' ? 'GENERATE — write the intents' : 'ANALYSE & ASK — no intents yet'
+  }`,
+);
+console.log(`                   ${phase.reason}`);
 console.log(`  Size             ~${approxTokens.toLocaleString()} tokens in (~$${approxCost} input)`);
 console.log(`  Contract         ${observed ? 'intents + missions (page observed)' : 'intents only (no page capture)'}`);
 console.log(`  Schema inlined   ${intentSchema ? 'yes' : 'NO — intents will not validate'}`);

@@ -118,8 +118,9 @@ a stale capture is worse than none, because it gets believed.
 > **Cost note.** The `web/` UI calls the Anthropic API and is billed per token
 > **on top of** any Claude subscription you already have. If you hold a Claude
 > seat, use it instead — see [docs/NO-EXTRA-COST.md](docs/NO-EXTRA-COST.md).
-> Either route produces identical artifacts; execution itself has never used a
-> model and costs nothing per run.
+> Either route produces identical artifacts. Execution can optionally use a
+> bounded AI review after a mission finishes; it does not control the browser
+> or change PASS/FAIL.
 
 
 ```bash
@@ -215,6 +216,36 @@ draft never executes, however valid it looks.
 
 Exit code is `1` if any mission is not PASS — including BLOCKED and
 INCONCLUSIVE, because both mean a human still has to look.
+
+### Optional execution-time AI review
+
+The browser remains deterministic. When enabled, the AI reviews a completed
+non-PASS run or incidental finding and writes `ai-analysis.json` beside the
+mission evidence. It proposes likely cause and bounded follow-up checks only;
+the result status, classifier, and human Gate 2 decision remain authoritative.
+
+```powershell
+$env:EXECUTION_AI="true"
+$env:ANTHROPIC_API_KEY="..."
+npm run run-mission -- --feature ecommerce
+```
+
+Use `EXECUTION_AI_MODEL` to override the default model. If the API is disabled,
+unavailable, or returns invalid JSON, the mission still completes normally and
+records the AI failure as a note.
+
+Missions already reuse the same Chromium browser, context, and page when their
+role and preconditions allow it. The session resets for a clean-state mission,
+a role change, a fatal run error, or `--fresh-state`. Use `--fresh-state` when
+you need every mission isolated.
+
+Missions can make this explicit with `execution_policy.state`: `reuse` (the
+default), `read_only`, `fresh_page`, or `fresh_context`. Replay always uses a
+fresh context regardless of the mission setting.
+
+Only `FAIL` results classified as `PRODUCT_DEFECT` create mission defect files.
+`BLOCKED` and `INCONCLUSIVE` results remain investigation items, while
+incidental findings are stored as separate exploration candidates.
 
 ## 9. Where evidence is stored
 

@@ -243,6 +243,19 @@
       }
     },
 
+    "execution_policy": {
+      "type": "object",
+      "description": "Controls whether this mission may inherit browser state. Reuse is the backward-compatible default.",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["reuse", "fresh_page", "fresh_context", "read_only"],
+          "description": "reuse continues the current workflow; fresh_page keeps authentication but opens a new page; fresh_context isolates cookies and storage; read_only documents that shared state is safe."
+        }
+      }
+    },
+
     "rerun_policy": {
       "type": "object",
       "description": "[R2] A single FAIL from an agentic run is weak evidence, and weak evidence is what destroys the trust the KPI depends on.",
