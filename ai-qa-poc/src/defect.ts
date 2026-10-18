@@ -25,7 +25,7 @@ import type { ExecutionResult, TestMission } from './types.js';
  *     reproduces the bug on someone else's machine.
  *
  *  3. **Nothing is filed automatically.** Everything here is a *candidate*
- *     until a human confirms it at Gate 2. §13a is the reason: the agent that
+ *     until a human confirms it at Gate 3. §13a is the reason: the agent that
  *     just failed is the least reliable narrator of why.
  */
 
@@ -81,6 +81,8 @@ export interface DefectCandidate {
   last_seen?: string;
   occurrences: number;
   seen_in_builds?: string[];
+  /** Every browser this defect reproduced in: one bug, all the engines it hits. */
+  seen_in_browsers?: string[];
   human_review?: Record<string, unknown>;
 }
 
@@ -222,7 +224,7 @@ export function fromExecution(
     environment: {
       url: result.replayable_trace?.steps?.find((s) => s.url)?.url ?? baseUrl ?? mission.starting_context.page,
       build: result.build ?? RUNTIME.build,
-      browser: RUNTIME.browser,
+      browser: result.browser ?? RUNTIME.browser ?? 'chromium',
       role: mission.role,
       run_id: result.run_id,
       observed_at: result.finished_at ?? now,
@@ -278,6 +280,7 @@ export function fromExecution(
     last_seen: now,
     occurrences: 1,
     seen_in_builds: [result.build ?? RUNTIME.build],
+    seen_in_browsers: [result.browser ?? RUNTIME.browser ?? 'chromium'],
   };
 }
 
@@ -330,6 +333,7 @@ export function fromFinding(
     feature?: string;
     ai_analysis?: ExecutionResult['ai_analysis'];
     session?: ExecutionResult['session'];
+    browser?: string;
   },
 ): DefectCandidate {
   const now = new Date().toISOString();
@@ -344,7 +348,7 @@ export function fromFinding(
     environment: {
       url,
       build: context.build ?? RUNTIME.build,
-      browser: RUNTIME.browser,
+      browser: context.browser ?? RUNTIME.browser ?? 'chromium',
       run_id: context.run_id,
       observed_at: now,
     },
@@ -372,6 +376,7 @@ export function fromFinding(
     last_seen: now,
     occurrences: 1,
     seen_in_builds: [context.build ?? RUNTIME.build],
+    seen_in_browsers: [context.browser ?? RUNTIME.browser ?? 'chromium'],
   };
 }
 
@@ -408,6 +413,7 @@ export function upsert(candidate: DefectCandidate): MergeResult {
     last_seen: candidate.last_seen ?? candidate.first_seen,
     occurrences: existing.occurrences + 1,
     seen_in_builds: Array.from(new Set([...(existing.seen_in_builds ?? []), ...(candidate.seen_in_builds ?? [])])),
+    seen_in_browsers: Array.from(new Set([...(existing.seen_in_browsers ?? []), ...(candidate.seen_in_browsers ?? [])])),
     // Newer evidence is better evidence — it is from the run the reader just did.
     evidence: candidate.evidence?.length ? candidate.evidence : existing.evidence,
     environment: { ...existing.environment, ...candidate.environment },
@@ -455,7 +461,7 @@ export function renderDefect(d: DefectCandidate): string {
 
   if (d.status === 'candidate') {
     L.push('> **Not yet confirmed.** Produced automatically from a test run and waiting on a');
-    L.push('> human at Gate 2. Read it before it goes to anyone.');
+    L.push('> human at Gate 3. Read it before it goes to anyone.');
     L.push('');
   }
 
@@ -478,7 +484,10 @@ export function renderDefect(d: DefectCandidate): string {
   if (d.test_id) L.push(`| **Test** | ${d.test_id} |`);
   L.push(`| **Environment** | ${d.environment.url} |`);
   if (d.environment.build) L.push(`| **Build** | ${d.environment.build} |`);
-  if (d.environment.browser) L.push(`| **Browser** | ${d.environment.browser} |`);
+  if (d.environment.browser) {
+    const all = d.seen_in_browsers?.length ? d.seen_in_browsers : [d.environment.browser];
+    L.push(`| **Browser** | ${all.join(', ')} |`);
+  }
   if (d.environment.role) L.push(`| **Role** | ${d.environment.role} |`);
   if (d.environment.observed_at) L.push(`| **Observed** | ${d.environment.observed_at} |`);
   if (d.session) {
@@ -546,7 +555,7 @@ export function renderDefect(d: DefectCandidate): string {
     L.push(d.ai_analysis.summary, '');
     for (const evidence of d.ai_analysis.evidence ?? []) L.push(`* Evidence: ${evidence}`);
     for (const followUp of d.ai_analysis.follow_up ?? []) L.push(`* Follow-up: ${followUp}`);
-    L.push('', '_Advisory only. The deterministic result and human Gate 2 decision remain authoritative._', '');
+    L.push('', '_Advisory only. The deterministic result and human Gate 3 decision remain authoritative._', '');
   }
 
   L.push('---', '');

@@ -40,6 +40,22 @@ header p { margin: 0 0 28px; color: var(--muted); font-size: 14px; }
   color: var(--muted); margin: 0 0 14px; font-weight: 600;
 }
 
+.workspace-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.workspace-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 18px 0; }
+.workspace-stats div { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.workspace-stats strong { display: block; font-size: 21px; color: var(--text); }
+.workspace-stats span { display: block; color: var(--muted); font-size: 11px; }
+.workspace-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 16px; }
+.workspace-grid h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+.artifact-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.artifact-row { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.artifact-row:last-child { border-bottom: 0; }
+.artifact-row span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-pass { color: var(--ok); }
+.status-fail, .status-blocked { color: var(--bad); }
+.status-inconclusive { color: var(--warn); }
+.workspace-updated { color: var(--muted); font-size: 11px; margin: 16px 0 0; }
+
 label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 
 textarea, input, select {
@@ -102,3 +118,10 @@ pre {
 .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.3);
   border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; margin-right: 8px; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 700px) {
+  .workspace-head { display: block; }
+  .workspace-head button { margin-top: 12px; }
+  .workspace-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workspace-grid { grid-template-columns: 1fr; }
+}

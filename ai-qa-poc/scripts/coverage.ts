@@ -90,6 +90,21 @@ console.log('');
  * `gapsManualOnly` is reported rather than failed for the same reason.
  */
 if (process.argv.includes('--check')) {
+  const minimumCases = 25;
+  const byRequirement = new Map<string, number>();
+  for (const mission of missions) {
+    const locator = mission.requirement_ref?.locator ?? '(unlinked requirement)';
+    const feature = /^input\/feature-([^/]+)\//.exec(locator)?.[1] ?? locator;
+    byRequirement.set(feature, (byRequirement.get(feature) ?? 0) + 1);
+  }
+  const shallow = [...byRequirement.entries()].filter(([, count]) => count < minimumCases);
+  if (shallow.length > 0) {
+    console.error(`✗ Test-case depth gate: every requirement needs at least ${minimumCases} meaningful missions.`);
+    for (const [requirement, count] of shallow) console.error(`  - ${requirement}: ${count} mission(s)`);
+    console.error('  Add distinct positive, negative, boundary, state, navigation, exploratory, or manual cases.');
+    process.exit(1);
+  }
+
   /**
    * A category is settled when it is either covered, or explicitly excluded
    * with a written reason. Anything else is silence, and silence is the thing

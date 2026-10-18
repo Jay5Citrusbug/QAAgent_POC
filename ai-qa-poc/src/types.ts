@@ -24,7 +24,11 @@ export type CoverageCategory =
   | 'api'
   | 'integration'
   | 'compatibility'
-  | 'responsive';
+  | 'responsive'
+  /** WCAG A/AA, checked by axe-core (src/a11y.ts). */
+  | 'accessibility'
+  /** Page speed: TTFB, LCP, CLS, load (src/performance.ts). */
+  | 'performance';
 export type Status = 'PASS' | 'FAIL' | 'BLOCKED' | 'INCONCLUSIVE';
 export type Confidence = 'HIGH' | 'MEDIUM' | 'LOW';
 
@@ -46,7 +50,13 @@ export type ActionType =
   | 'hover'
   | 'press'
   | 'wait_for_state'
-  | 'verify';
+  | 'verify'
+  /** Make matching API calls fail for the rest of the mission (src/faults.ts). */
+  | 'fail_requests'
+  /** Call an API endpoint directly, with the browser session's cookies. */
+  | 'api_request'
+  /** End the session as a timeout would: cookies and web storage cleared. */
+  | 'expire_session';
 
 export type CheckType =
   | 'visible'
@@ -67,7 +77,34 @@ export type CheckType =
    * named element. Catches a whole bug class without predicting each instance.
    */
   | 'all_images_loaded'
-  | 'all_controls_have_accessible_name';
+  | 'all_controls_have_accessible_name'
+  /**
+   * API checks, read from the XHR/fetch traffic the page made during the
+   * mission. No element involved: they see what the UI hides — a 500 behind a
+   * friendly message, a 200 carrying the wrong value.
+   */
+  | 'api_response'
+  /** Sweep: no API call during the mission failed (5xx or no response; 4xx too with value "4xx"). */
+  | 'api_no_errors'
+  /**
+   * Integration: what an element shows agrees with a field of an API response
+   * (needs target + request + json_path). Numbers compare as numbers.
+   */
+  | 'ui_matches_api'
+  /**
+   * Sweep: the page lays out soundly at the current screen size — no sideways
+   * scroll, nothing cut off or covered, tap targets big enough on touch widths.
+   */
+  | 'layout_sound'
+  /**
+   * The page (or the target region) has no WCAG A/AA violations at or above
+   * `value` impact: minor, moderate, serious (default) or critical.
+   */
+  | 'accessible'
+  /** The page looks like its approved visual baseline (within VISUAL_TOLERANCE). */
+  | 'looks_like_baseline'
+  /** The page loaded within `budget` (TTFB, LCP, CLS, load). */
+  | 'performance_budget';
 
 export type ResolutionStrategy =
   | 'cache'
@@ -77,6 +114,12 @@ export type ResolutionStrategy =
   | 'placeholder'
   | 'text'
   | 'selector'
+  /** Same words, ignoring case, spacing and punctuation. */
+  | 'fuzzy'
+  /** An equivalent phrase ("log in" for "sign in"). */
+  | 'synonym'
+  /** Chosen by the model from the visible controls — always flagged for review. */
+  | 'ai'
   | 'none';
 
 /** A semantic element descriptor. Meaning, not CSS — and never a coordinate. */
@@ -108,6 +151,17 @@ export interface MissionAction {
   assertion_ref?: string;
   /** For `blocked` missions: this step may legitimately fail. */
   tolerate_failure?: boolean;
+  /** fail_requests: which calls to fail, and how. */
+  request?: { method?: string; url_contains: string };
+  failure?: 'server_error' | 'not_found' | 'timeout' | 'offline' | 'slow';
+  status?: number;
+  delay_ms?: number;
+  /** api_request: HTTP method (url is the path, relative to base_url). */
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /** api_request: JSON body. Strings inside support {run_id} and {saved.<name>}. */
+  body?: unknown;
+  /** api_request: keep response fields for later steps as {saved.<as>}. */
+  save?: { json_path: string; as: string }[];
 }
 
 export interface AssertionCheck {
@@ -115,11 +169,21 @@ export interface AssertionCheck {
   target?: TargetSpec;
   value?: string | number;
   attribute?: string;
+  /** api_response: which call. The most recent match is the one checked. */
+  request?: { method?: string; url_contains: string };
+  /** api_response: an exact code (201) or a class ("2xx", "4xx"). */
+  status?: number | string;
+  /** api_response: text the response body must contain. */
+  body_contains?: string;
+  /** api_response: a field in the JSON body ("order.status", "items[0].qty", "items.length"), compared with `value`. */
+  json_path?: string;
+  /** performance_budget: limits for this page; any omitted metric is not checked. */
+  budget?: { ttfb_ms?: number; lcp_ms?: number; cls?: number; load_ms?: number };
 }
 
 export interface MissionAssertion {
   id: string;
-  /** What the human reads at Gate 1. */
+  /** What the human reads at Gate 2. */
   statement: string;
   /** What becomes a real Playwright expectation. */
   check: AssertionCheck;
@@ -140,6 +204,10 @@ export interface TestMission {
   priority: Priority;
   role: string;
   environment: 'STAGE';
+  /** Browser engine for this mission (compatibility). The run's --browser overrides it. Default chromium. */
+  browser?: 'chromium' | 'firefox' | 'webkit';
+  /** Screen size for this mission: mobile, tablet, desktop, or exact. Default desktop. */
+  viewport?: 'mobile' | 'tablet' | 'desktop' | { width: number; height: number };
   auth?: { strategy: 'storage_state' | 'anonymous'; storage_state_ref?: string };
   starting_context: { page: string; location?: string; url_hint?: string };
   preconditions: string[];
@@ -180,6 +248,8 @@ export interface TestMission {
   /** [R4] Provenance from phase 2a. Absent on hand-written missions. */
   binding?: {
     intent_ref: string;
+    /** Hash of the intent at bind time; verify holds the mission if it moved. */
+    intent_hash?: string;
     bound_at: string;
     bound_against?: { build?: string; captured_at?: string; url?: string };
     confidence: 'high' | 'medium' | 'low';
@@ -192,6 +262,8 @@ export interface TestMission {
     edits_made?: boolean;
     review_minutes?: number;
   };
+  /** Changes made after first approval, each re-approved (npm run heal). */
+  change_log?: { at: string; by: string; proposal?: string; kind?: string; change: string; reason: string; evidence?: string }[];
 }
 
 export interface StepRecord {
@@ -204,6 +276,15 @@ export interface StepRecord {
   resolution_confidence?: Confidence;
   duration_ms?: number;
   error?: string;
+  /** Why a fallback tier chose this element. */
+  resolution_note?: string;
+  /** The element's real descriptor when a fallback tier found it — input to `npm run heal`. */
+  resolved_as?: Partial<TargetSpec>;
+  /** The element about to be acted on, outlined in red — evidence of WHICH control was used. */
+  target_screenshot?: string;
+  /** The page after the step. */
+  screenshot?: string;
+  url?: string;
 }
 
 export interface AssertionResult {
@@ -216,6 +297,17 @@ export interface AssertionResult {
   error?: string;
   /** False when the check could not become a real expectation → INCONCLUSIVE, never PASS. */
   evaluable?: boolean;
+  /** The value the check compared against, verbatim. */
+  expected_value?: string;
+  /** How a text check was satisfied: exact, after normalising, or by AI judging the meaning. */
+  match?: 'exact' | 'normalised' | 'semantic';
+  /** The model's reasoning when match is semantic. */
+  match_note?: string;
+  resolution_strategy?: ResolutionStrategy;
+  resolution_note?: string;
+  resolved_as?: Partial<TargetSpec>;
+  /** The page when the check was evaluated, the checked element outlined. */
+  screenshot?: string;
 }
 
 export interface TraceStep {
@@ -236,6 +328,23 @@ export interface ExecutionResult {
   test_objective?: string;
   environment?: string;
   role?: string;
+  /** Page performance at the end of the mission (src/performance.ts). */
+  performance?: { url: string; ttfb_ms?: number; lcp_ms?: number; cls?: number; load_ms?: number; dom_content_loaded_ms?: number };
+  /** Engine and version the mission ran in, e.g. "Firefox 140.0". */
+  browser?: string;
+  /** The screen size the mission ran at, e.g. "mobile (390×844)". */
+  viewport?: string;
+  /** Screenshot compared with the approved baseline (src/visual.ts). */
+  visual?: {
+    status: 'no_baseline' | 'same' | 'changed';
+    diff_ratio?: number;
+    baseline?: string;
+    current: string;
+    diff?: string;
+    size_changed?: string;
+    changed_pixels?: number;
+    region?: { x: number; y: number; width: number; height: number };
+  };
   session?: {
     fresh: boolean;
     inherited_from?: string;
@@ -293,6 +402,21 @@ export interface ExecutionResult {
     follow_up?: string[];
     error?: string;
   };
+  /**
+   * Screen recording. With a reused browser one video can span several tests,
+   * so `offset_ms` is where this test starts inside it.
+   */
+  video?: { path: string; offset_ms: number; shared_with?: string[] };
+  /** API traffic the page made during this test (XHR/fetch), with failures counted. */
+  network?: { path: string; total: number; failed: number };
+  /**
+   * How far the verdict rests on exact, deterministic evidence.
+   *   verified   every element and check matched exactly
+   *   review     a fallback tier or AI judgement was involved — look at those steps
+   *   weak       the verdict is not PASS/FAIL, or evidence is missing
+   */
+  evidence_trust?: 'verified' | 'review' | 'weak';
+  trust_reasons?: string[];
   failure_classification: FailureClassification | null;
   classification_source?: 'classifier' | 'human' | 'none';
   classification_rationale?: string[];
@@ -317,13 +441,29 @@ export type Observable =
   | 'element_absent'
   | 'value_equals'
   | 'data_persisted'
-  | 'access_denied';
+  | 'access_denied'
+  /** Settled by an API call the action makes: its status, or a field in its response. */
+  | 'api_response'
+  /** What the UI shows agrees with what the API returned. */
+  | 'ui_matches_api';
 
 export interface IntentStep {
   id: string;
   actor_intent: string;
   data_ref?: string;
   note?: string;
+  /**
+   * A step done through the API rather than the UI: setting data up, or
+   * reading a record back to prove it was stored. Bound to an api_request.
+   */
+  /** Something that happens TO the user rather than by them. Bound to a step. */
+  simulate?: 'session_expired';
+  api?: {
+    /** "POST /api/orders". {name} placeholders are filled from earlier saved values. */
+    endpoint: string;
+    body?: Record<string, unknown>;
+    save?: { json_path: string; as: string }[];
+  };
 }
 
 export interface IntentOutcome {
@@ -352,6 +492,8 @@ export interface TestIntent {
   depends_on_clarifications?: string[];
   feature: string;
   module?: string;
+  /** The sheet's 'FE/BE?' column. Derived from coverage when omitted. */
+  layer?: 'FE' | 'BE' | 'FE+BE';
   capability: string;
   priority: Priority;
   actor: string;
@@ -367,6 +509,20 @@ export interface TestIntent {
   };
   steps: IntentStep[];
   outcomes: IntentOutcome[];
+  /**
+   * A backend failure this test simulates — the error_handling case. Bound to
+   * a `fail_requests` step that runs before the page opens.
+   */
+  /** compatibility: the engine this test is about (webkit = Safari's). Bound onto the mission. */
+  browser?: 'chromium' | 'firefox' | 'webkit';
+  /** responsive: the screen size this test is about. Bound onto the mission. */
+  viewport?: 'mobile' | 'tablet' | 'desktop';
+  fault?: {
+    kind: 'server_error' | 'not_found' | 'timeout' | 'offline' | 'slow';
+    /** "POST /api/cart" when the requirement names it; otherwise chosen at Gate 2.5. */
+    endpoint?: string;
+    description: string;
+  };
   not_verifiable_yet?: string[];
   assumption?: boolean;
   approval?: {
@@ -410,6 +566,14 @@ export interface AppContext {
   pages?: Record<string, { path: string; description?: string }>;
   modules?: { name: string; capabilities?: string[] }[];
   roles?: { name: string; storage_state_ref?: string; description?: string }[];
+  /**
+   * Who may open which page. `npm run access-matrix` tries every role against
+   * every path and reports leaks (opened, should not) and refusals (refused,
+   * should not). A role not listed in `allow` must be refused.
+   */
+  access?: { path: string; allow: string[]; note?: string }[];
+  /** How this application refuses access, when the defaults do not recognise it. */
+  access_denied?: { redirect_contains?: string[]; text?: string[] };
   global_testing_rules?: string[];
   data_hygiene?: { artifact_prefix?: string; cleanup?: string; note?: string };
 }

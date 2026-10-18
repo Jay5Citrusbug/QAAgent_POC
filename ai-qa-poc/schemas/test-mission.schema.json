@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://qagents.local/schemas/test-mission.schema.json",
   "title": "Test Mission",
-  "description": "The contract between the Thinking Agent and the Execution Agent. The Thinking Agent produces it, a human approves it at Gate 1, the Execution Agent consumes it. The Execution Agent must never redefine test_objective.",
+  "description": "The contract between the Thinking Agent and the Execution Agent. The Thinking Agent produces it, a human approves it at Gate 2, the Execution Agent consumes it. The Execution Agent must never redefine test_objective.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -49,6 +49,16 @@
     "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
     "role": { "type": "string", "description": "Must exist in knowledge/application-context.yaml roles." },
     "environment": { "type": "string", "enum": ["STAGE"], "description": "POC-1 is STAGE only. Deliberately narrow." },
+
+    "browser": { "type": "string", "enum": ["chromium", "firefox", "webkit"], "description": "Browser engine (webkit is Safari's). The run's --browser overrides it. Default chromium." },
+
+    "viewport": {
+      "description": "Screen size: mobile (390x844), tablet (820x1180), desktop (1440x900, the default), or exact.",
+      "oneOf": [
+        { "type": "string", "enum": ["mobile", "tablet", "desktop"] },
+        { "type": "object", "additionalProperties": false, "required": ["width", "height"], "properties": { "width": { "type": "integer", "minimum": 240, "maximum": 3840 }, "height": { "type": "integer", "minimum": 240, "maximum": 2400 } } }
+      ]
+    },
 
     "auth": {
       "type": "object",
@@ -102,7 +112,9 @@
             "api",
             "integration",
             "compatibility",
-            "responsive"
+            "responsive",
+            "accessibility",
+            "performance"
           ]
         },
         "secondary_categories": {
@@ -167,7 +179,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["navigate", "click", "fill", "type", "select", "check", "upload", "hover", "press", "wait_for_state", "verify"]
+            "enum": ["navigate", "click", "fill", "type", "select", "check", "upload", "hover", "press", "wait_for_state", "verify", "fail_requests", "api_request", "expire_session"]
           },
           "instruction": { "type": "string", "description": "The human sentence describing this step." },
           "target": { "$ref": "#/$defs/target" },
@@ -179,6 +191,38 @@
           "tolerate_failure": {
             "type": "boolean",
             "description": "[R2] For expected_outcome 'blocked' missions: this step may legitimately fail because the app should refuse it. A failure here is recorded, not fatal."
+          },
+          "request": {
+            "type": "object",
+            "description": "fail_requests only: which XHR/fetch calls to fail for the rest of the mission.",
+            "additionalProperties": false,
+            "required": ["url_contains"],
+            "properties": {
+              "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+              "url_contains": { "type": "string", "minLength": 1 }
+            }
+          },
+          "failure": {
+            "type": "string",
+            "enum": ["server_error", "not_found", "timeout", "offline", "slow"],
+            "description": "fail_requests only. server_error/not_found answer with a status; timeout holds then drops the call; offline drops it at once; slow delays it."
+          },
+          "status": { "type": "integer", "minimum": 400, "maximum": 599, "description": "fail_requests only: the status for server_error (default 500) or not_found (default 404)." },
+          "delay_ms": { "type": "integer", "minimum": 0, "maximum": 60000, "description": "fail_requests only: hold time for timeout (default 15000) or slow (default 5000)." },
+          "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "description": "api_request only. url is the path, relative to base_url." },
+          "body": { "description": "api_request only: JSON body. Strings inside support {run_id} and {saved.<name>}." },
+          "save": {
+            "type": "array",
+            "description": "api_request only: response fields to keep for later steps, used as {saved.<as>}.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["json_path", "as"],
+              "properties": {
+                "json_path": { "type": "string" },
+                "as": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" }
+              }
+            }
           }
         }
       }
@@ -194,7 +238,7 @@
         "required": ["id", "statement", "check"],
         "properties": {
           "id": { "type": "string", "pattern": "^A[0-9]+$" },
-          "statement": { "type": "string", "description": "The human sentence. This is what the reviewer reads at Gate 1." },
+          "statement": { "type": "string", "description": "The human sentence. This is what the reviewer reads at Gate 2." },
           "check": {
             "type": "object",
             "description": "The machine-checkable form. An assertion that cannot be expressed as a real expectation yields INCONCLUSIVE, never PASS.",
@@ -203,11 +247,35 @@
             "properties": {
               "type": {
                 "type": "string",
-                "enum": ["visible", "not_visible", "text_equals", "text_contains", "enabled", "disabled", "count", "url_contains", "attribute_equals", "image_loaded", "has_accessible_name", "all_images_loaded", "all_controls_have_accessible_name"]
+                "enum": ["visible", "not_visible", "text_equals", "text_contains", "enabled", "disabled", "count", "url_contains", "attribute_equals", "image_loaded", "has_accessible_name", "all_images_loaded", "all_controls_have_accessible_name", "api_response", "api_no_errors", "ui_matches_api", "layout_sound", "accessible", "looks_like_baseline", "performance_budget"]
               },
               "target": { "$ref": "#/$defs/target" },
               "value": { "type": ["string", "number"], "description": "Expected value, where the check type needs one. Supports {run_id} substitution." },
-              "attribute": { "type": "string", "description": "attribute_equals only." }
+              "attribute": { "type": "string", "description": "attribute_equals only." },
+              "request": {
+                "type": "object",
+                "description": "api_response (and optionally api_no_errors, to scope it): which XHR/fetch call. The most recent matching call during the mission is checked.",
+                "additionalProperties": false,
+                "required": ["url_contains"],
+                "properties": {
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+                  "url_contains": { "type": "string", "minLength": 1, "description": "A fragment of the URL, e.g. /api/cart" }
+                }
+              },
+              "status": { "type": ["integer", "string"], "pattern": "^[1-5](\\d\\d|xx)$", "description": "api_response: an exact code (201) or a class (\"2xx\", \"4xx\")." },
+              "body_contains": { "type": "string", "description": "api_response: text the response body must contain." },
+              "json_path": { "type": "string", "description": "api_response: a field in the JSON body (order.status, items[0].qty, items.length), compared with value." },
+              "budget": {
+                "type": "object",
+                "description": "performance_budget: limits for this page. Omitted metrics are not checked.",
+                "additionalProperties": false,
+                "properties": {
+                  "ttfb_ms": { "type": "integer", "minimum": 0 },
+                  "lcp_ms": { "type": "integer", "minimum": 0 },
+                  "cls": { "type": "number", "minimum": 0 },
+                  "load_ms": { "type": "integer", "minimum": 0 }
+                }
+              }
             }
           },
           "critical": {
@@ -273,6 +341,7 @@
       "required": ["intent_ref", "bound_at", "confidence"],
       "properties": {
         "intent_ref": { "type": "string", "description": "The test_id of the intent this was bound from. Same id: one thread from requirement to defect." },
+        "intent_hash": { "type": "string", "description": "Hash of the intent (approval stamp excluded) at bind time. `npm run verify` holds the mission back if the intent has been edited since - the mission would be testing the old version." },
         "bound_at": { "type": "string", "format": "date-time" },
         "bound_against": {
           "type": "object",
@@ -287,7 +356,7 @@
         "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
         "exceptions": {
           "type": "array",
-          "description": "Everything the binder could not settle. Gate 1.5 reviews exactly this and nothing else - reviewing every binding would be a rubber stamp, and a rubber-stamp gate manufactures the appearance of review.",
+          "description": "Everything the binder could not settle. Gate 2.5 reviews exactly this and nothing else - reviewing every binding would be a rubber stamp, and a rubber-stamp gate manufactures the appearance of review.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -295,11 +364,11 @@
             "properties": {
               "kind": {
                 "type": "string",
-                "enum": ["no_candidate", "ambiguous", "approximated", "value_unknown", "unsupported_step", "role_unresolved", "data_unprovisioned"]
+                "enum": ["no_candidate", "ambiguous", "approximated", "value_unknown", "unsupported_step", "role_unresolved", "data_unprovisioned", "api_endpoint_unknown"]
               },
               "where": { "type": "string", "description": "The step or outcome id, e.g. S2 or O1." },
               "summary": { "type": "string" },
-              "resolved_by": { "type": "string", "description": "Who settled it at Gate 1.5, stamped on approval." },
+              "resolved_by": { "type": "string", "description": "Who settled it at Gate 2.5, stamped on approval." },
               "resolution": { "type": "string", "description": "What they decided." }
             }
           }
@@ -311,9 +380,28 @@
       }
     },
 
+    "change_log": {
+      "type": "array",
+      "description": "Every change made to this mission after it was first approved - by npm run heal or by hand - with who approved it and why. Approval is re-stamped on each change.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["at", "by", "change", "reason"],
+        "properties": {
+          "at": { "type": "string", "format": "date-time" },
+          "by": { "type": "string" },
+          "proposal": { "type": "string" },
+          "kind": { "type": "string" },
+          "change": { "type": "string" },
+          "reason": { "type": "string" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+
     "approval": {
       "type": "object",
-      "description": "[R2] Gate 1, made machine-checkable. The Execution Agent refuses any mission outside missions/approved/ or with this block absent.",
+      "description": "[R2] Gate 2, made machine-checkable. The Execution Agent refuses any mission outside missions/approved/ or with this block absent.",
       "additionalProperties": false,
       "required": ["approved_by", "approved_at"],
       "properties": {

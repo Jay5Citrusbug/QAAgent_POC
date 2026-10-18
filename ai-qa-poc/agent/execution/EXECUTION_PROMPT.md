@@ -42,7 +42,7 @@ evidence on disk under `runs/<test_id>/<run_id>/`.
    and evidence. You do not decide *why* it failed. An agent that just failed is
    the least reliable narrator of why — self-classification lets
    `AGENT_EXECUTION_FAILURE` quietly mask a real product defect. The classifier
-   pass proposes; the human at Gate 2 decides.
+   pass proposes; the human at Gate 3 decides.
 
 6. **Never convert an environment problem into a product defect.** If the base
    URL is unreachable, the session is invalid, or a fixture is missing, that is

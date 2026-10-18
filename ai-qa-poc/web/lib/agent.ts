@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'node:fs';
 import { P, readIfPresent } from './paths';
+import { providerForModel } from './models';
 
 /**
  * The Thinking Agent, driven by the API instead of by copy-paste.
@@ -46,6 +47,11 @@ export interface Usage {
   model: string;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 function client(): Anthropic {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error(
@@ -53,6 +59,15 @@ function client(): Anthropic {
     );
   }
   return new Anthropic();
+}
+
+function apiKey(provider: 'openai' | 'google'): string {
+  const key = provider === 'openai' ? process.env.OPENAI_API_KEY : process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!key) {
+    const variable = provider === 'openai' ? 'OPENAI_API_KEY' : 'GEMINI_API_KEY or GOOGLE_API_KEY';
+    throw new Error(`${variable} is not set. Configure it in web/.env.local to use this provider.`);
+  }
+  return key;
 }
 
 /**
@@ -101,6 +116,56 @@ function textOf(message: Anthropic.Message): string {
     .join('\n');
 }
 
+async function runOpenAI(model: string, system: string, messages: ChatMessage[], effort: string) {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey('openai')}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'system', content: system }, ...messages],
+      max_completion_tokens: 16000,
+      ...(model.startsWith('o') ? { reasoning_effort: effort } : {}),
+    }),
+  });
+  const body = (await response.json()) as {
+    error?: { message?: string };
+    choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  if (!response.ok) throw new Error(body.error?.message ?? `OpenAI API returned HTTP ${response.status}.`);
+  return {
+    text: body.choices?.[0]?.message?.content ?? '',
+    inputTokens: body.usage?.prompt_tokens ?? 0,
+    outputTokens: body.usage?.completion_tokens ?? 0,
+  };
+}
+
+async function runGoogle(model: string, system: string, messages: ChatMessage[]) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey('google') },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: messages.map((message) => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.content }] })),
+        generationConfig: { maxOutputTokens: 16000, responseMimeType: 'application/json' },
+      }),
+    },
+  );
+  const body = (await response.json()) as {
+    error?: { message?: string };
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  };
+  if (!response.ok) throw new Error(body.error?.message ?? `Google AI API returned HTTP ${response.status}.`);
+  return {
+    text: body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '',
+    inputTokens: body.usageMetadata?.promptTokenCount ?? 0,
+    outputTokens: body.usageMetadata?.candidatesTokenCount ?? 0,
+  };
+}
+
 const ANALYZE_INSTRUCTION = `
 Analyse the requirement below.
 
@@ -129,7 +194,7 @@ Return ONLY a JSON object, no prose outside it, shaped exactly:
 
 {
   "missions": [ <full mission objects, each validating against the schema above> ],
-  "notes": [ "<anything the human should know at Gate 1 — assumptions, fragile assertions, things you chose not to cover>" ]
+  "notes": [ "<anything the human should know at Gate 2 — assumptions, fragile assertions, things you chose not to cover>" ]
 }
 
 Rules:
@@ -159,18 +224,17 @@ export interface RunInput {
   /** Suggested test_id prefix, to keep one feature's ids from colliding with another's. */
   idPrefix?: string;
   /** Prior turns, so phase 2 sees the analysis and the human's answers. */
-  history: Anthropic.MessageParam[];
+  history: ChatMessage[];
 }
 
 export interface RunOutput {
   result: AnalyzeResult | GenerateResult;
   usage: Usage;
   /** The full exchange, to feed back in on the next phase. */
-  history: Anthropic.MessageParam[];
+  history: ChatMessage[];
 }
 
 export async function runAgent(input: RunInput): Promise<RunOutput> {
-  const anthropic = client();
   const system = buildSystemPrompt(input.appContextYaml);
 
   // Told to the agent in both phases: phase 1 records it in the analysis,
@@ -186,7 +250,7 @@ export async function runAgent(input: RunInput): Promise<RunOutput> {
     .filter(Boolean)
     .join('\n');
 
-  const userTurn: Anthropic.MessageParam =
+  const userTurn: ChatMessage =
     input.phase === 'analyze'
       ? {
           role: 'user',
@@ -196,33 +260,49 @@ export async function runAgent(input: RunInput): Promise<RunOutput> {
 
   const messages = [...input.history, userTurn];
 
-  // Haiku 4.5 predates adaptive thinking and takes budget_tokens instead, so
-  // effort/adaptive are only sent to the models that accept them.
-  const isLegacyThinking = input.model.startsWith('claude-haiku-4-5');
+  const provider = providerForModel(input.model);
+  let raw: string;
+  let inputTokens: number;
+  let outputTokens: number;
+  if (provider === 'openai') {
+    const result = await runOpenAI(input.model, system, messages, input.effort);
+    raw = result.text;
+    inputTokens = result.inputTokens;
+    outputTokens = result.outputTokens;
+  } else if (provider === 'google') {
+    const result = await runGoogle(input.model, system, messages);
+    raw = result.text;
+    inputTokens = result.inputTokens;
+    outputTokens = result.outputTokens;
+  } else {
+    const anthropic = client();
+    const isLegacyThinking = input.model.startsWith('claude-haiku-4-5');
+    const response = await anthropic.messages.create({
+      model: input.model,
+      max_tokens: 16000,
+      system,
+      messages: messages.map((message) => ({ role: message.role, content: message.content })),
+      ...(isLegacyThinking
+        ? {}
+        : {
+            thinking: { type: 'adaptive' as const },
+            output_config: { effort: input.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' },
+          }),
+    });
+    raw = textOf(response);
+    inputTokens = response.usage.input_tokens;
+    outputTokens = response.usage.output_tokens;
+  }
 
-  const response = await anthropic.messages.create({
-    model: input.model,
-    max_tokens: 16000,
-    system,
-    messages,
-    ...(isLegacyThinking
-      ? {}
-      : {
-          thinking: { type: 'adaptive' as const },
-          output_config: { effort: input.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' },
-        }),
-  });
-
-  const raw = textOf(response);
   const parsed = extractJson(raw) as Record<string, unknown>;
 
   const usage: Usage = {
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-    model: response.model,
+    inputTokens,
+    outputTokens,
+    model: input.model,
   };
 
-  const history: Anthropic.MessageParam[] = [
+  const history: ChatMessage[] = [
     ...messages,
     { role: 'assistant', content: raw },
   ];
@@ -250,7 +330,7 @@ export async function runAgent(input: RunInput): Promise<RunOutput> {
 export function answersTurn(
   questions: ClarifyingQuestion[],
   answers: Record<string, string>,
-): Anthropic.MessageParam {
+): ChatMessage {
   const lines = questions.map((q) => `- ${q.id}: ${q.question}\n  HUMAN ANSWER: ${answers[q.id]?.trim() || '(left unanswered)'}`);
   return {
     role: 'user',

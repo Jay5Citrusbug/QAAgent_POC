@@ -22,12 +22,15 @@ interface Question { id: string; question: string; why: string; options?: string
 interface Analysis { analysisMarkdown: string; questions: Question[]; readyForMissions: boolean; summary: string }
 interface Mission { test_id?: string; test_objective?: string; priority?: string; module?: string; [k: string]: unknown }
 interface Usage { inputTokens: number; outputTokens: number; model: string; estimatedCost: number }
-
-const MODELS = [
-  { id: 'claude-opus-5', label: 'Claude Opus 5 — best at finding unstated gaps (recommended)' },
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — cheaper, good for a re-run' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 — fastest, too shallow for gap analysis' },
-];
+interface ModelChoice { id: string; label: string; note: string; provider: string }
+interface WorkspaceArtifacts {
+  generatedAt: string;
+  analysis: { file: string; content: string } | null;
+  missions: { draft: { id: string; content: string }[]; approved: { id: string; content: string }[] };
+  runs: { test_id?: string; status?: string; failure_classification?: string; confidence?: string; feature?: string; build?: string }[];
+  defects: { file: string; fingerprint?: string; title?: string; status?: string; severity?: string }[];
+  reports: { file: string; content?: string }[];
+}
 
 export default function Page() {
   const [stage, setStage] = useState<Stage>('input');
@@ -37,6 +40,7 @@ export default function Page() {
   const [featureId, setFeatureId] = useState('');
   const [featureSlug, setFeatureSlug] = useState('');
   const [idPrefix, setIdPrefix] = useState('');
+  const [models, setModels] = useState<ModelChoice[]>([]);
   const [conflicts, setConflicts] = useState<{ testId: string; existingObjective: string; where: string }[]>([]);
   const [features, setFeatures] = useState<{ id: string; label: string }[]>([]);
 
@@ -55,7 +59,7 @@ export default function Page() {
   /**
    * Binding exceptions per mission, and which ones the human has said they read.
    *
-   * Gate 1.5 exists because a binder that could not settle something must not
+   * Gate 2.5 exists because a binder that could not settle something must not
    * have that decision made for it by a default. Showing the exceptions and
    * requiring a deliberate tick is the browser's version of the CLI's
    * --reviewed; without it, approving blind and approving after reading are the
@@ -65,16 +69,36 @@ export default function Page() {
   const [reviewed, setReviewed] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [artifacts, setArtifacts] = useState<WorkspaceArtifacts | null>(null);
+  const [artifactError, setArtifactError] = useState('');
+
+  async function refreshArtifacts() {
+    try {
+      const res = await fetch('/api/artifacts', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`Workspace refresh failed (${res.status})`);
+      setArtifacts((await res.json()) as WorkspaceArtifacts);
+      setArtifactError('');
+    } catch (e) {
+      setArtifactError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   useEffect(() => {
     fetch('/api/think')
       .then((r) => r.json())
       .then((d) => {
         setFeatures(d.features ?? []);
+        setModels(d.models ?? []);
         if (d.default?.model) setModel(d.default.model);
         if (d.default?.effort) setEffort(d.default.effort);
       })
       .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    void refreshArtifacts();
+    const timer = window.setInterval(() => void refreshArtifacts(), 3000);
+    return () => window.clearInterval(timer);
   }, []);
 
   async function call(path: string, body: unknown) {
@@ -223,6 +247,73 @@ export default function Page() {
         <p>Requirement in. Gaps and questions out. Approved missions written to disk — nothing skips a human.</p>
       </header>
 
+      <section className="workspace panel">
+        <div className="workspace-head">
+          <div>
+            <h2>Local workspace</h2>
+            <p className="hint" style={{ margin: 0 }}>Live view of files written by VS Code Chat, Antigravity, the CLI, and browser runs.</p>
+          </div>
+          <button className="secondary" onClick={() => void refreshArtifacts()}>Refresh now</button>
+        </div>
+        {artifactError && <div className="alert bad" style={{ marginTop: 14 }}>{artifactError}</div>}
+        {artifacts && (
+          <>
+            <div className="workspace-stats">
+              <div><strong>{artifacts.missions.draft.length}</strong><span>draft missions</span></div>
+              <div><strong>{artifacts.missions.approved.length}</strong><span>approved missions</span></div>
+              <div><strong>{artifacts.runs.filter((r) => r.status === 'PASS').length}</strong><span>latest passes</span></div>
+              <div><strong>{artifacts.runs.filter((r) => r.status === 'FAIL').length}</strong><span>latest failures</span></div>
+              <div><strong>{artifacts.defects.filter((d) => d.status === 'candidate').length}</strong><span>defect candidates</span></div>
+            </div>
+
+            <div className="workspace-grid">
+              <div>
+                <h3>Latest execution</h3>
+                {artifacts.runs.length === 0 ? <p className="hint">No execution results on disk yet.</p> : (
+                  <div className="artifact-list">
+                    {artifacts.runs.map((run) => (
+                      <div className="artifact-row" key={run.test_id}>
+                        <code>{run.test_id}</code>
+                        <span>{run.failure_classification ?? run.feature ?? 'run'}</span>
+                        <details>
+                          <summary className={`status-${String(run.status ?? '').toLowerCase()}`}>{run.status ?? 'unknown'}</summary>
+                          <pre>{JSON.stringify(run, null, 2)}</pre>
+                        </details>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <h3>Latest analysis</h3>
+                {artifacts.analysis ? (
+                  <details>
+                    <summary><code>{artifacts.analysis.file}</code></summary>
+                    <pre>{artifacts.analysis.content}</pre>
+                  </details>
+                ) : <p className="hint">No analysis file on disk yet.</p>}
+              </div>
+            </div>
+
+            <div className="workspace-grid">
+              <div>
+                <h3>Mission files</h3>
+                <p className="hint">Draft: {artifacts.missions.draft.length || 'none'}</p>
+                {artifacts.missions.draft.map((mission) => <details key={`draft-${mission.id}`}><summary><code>{mission.id}</code></summary><pre>{mission.content}</pre></details>)}
+                <p className="hint">Approved: {artifacts.missions.approved.length || 'none'}</p>
+                {artifacts.missions.approved.map((mission) => <details key={`approved-${mission.id}`}><summary><code>{mission.id}</code></summary><pre>{mission.content}</pre></details>)}
+              </div>
+              <div>
+                <h3>Defects &amp; reports</h3>
+                <p className="hint">{artifacts.defects.length} defect file(s), {artifacts.reports.length} report file(s)</p>
+                {artifacts.reports[0]?.content && <details><summary>Open latest report</summary><pre>{artifacts.reports[0].content}</pre></details>}
+              </div>
+            </div>
+            <p className="workspace-updated">Last read {new Date(artifacts.generatedAt).toLocaleTimeString()}</p>
+          </>
+        )}
+      </section>
+
       <div className="steps">
         {stages.map((s) => {
           const idx = order.indexOf(s.key);
@@ -248,7 +339,8 @@ export default function Page() {
           <div>
             <label htmlFor="model">Model</label>
             <select id="model" value={model} onChange={(e) => setModel(e.target.value)} disabled={stage !== 'input'}>
-              {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {models.length === 0 && <option value="">No configured model provider</option>}
+              {models.map((m) => <option key={m.id} value={m.id}>{m.label} ({m.provider})</option>)}
             </select>
           </div>
           <div>

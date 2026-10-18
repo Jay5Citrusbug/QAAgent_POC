@@ -2,6 +2,7 @@ import type { Locator, Page } from '@playwright/test';
 import { interpolateTarget } from './interpolate.js';
 import { describeNearMisses, findNearMisses, readControls } from './near-miss.js';
 import type { LocatorCache } from './locator-cache.js';
+import { aiMatch, describeElement, fuzzyMatch, synonymMatch } from './smart-locator.js';
 import type { Confidence, LocatorCacheEntry, ResolutionStrategy, TargetSpec } from './types.js';
 
 /**
@@ -77,6 +78,10 @@ export interface Resolved {
   description: string;
   /** What to write back to the cache. */
   descriptor: Partial<LocatorCacheEntry>;
+  /** Set when a fallback tier chose the element — why, in plain words. */
+  note?: string;
+  /** The exact descriptor the element really has; `npm run heal` proposes it. */
+  suggested?: Partial<TargetSpec>;
 }
 
 type Candidate = {
@@ -216,6 +221,15 @@ export async function resolveTarget(
     allowMultiple?: boolean;
     /** Substituted into the descriptor, so a target can name what a step created. */
     runId?: string;
+    /**
+     * Fallback tiers once the exact descriptor finds nothing (see smart-locator.ts).
+     *   full    fuzzy → synonym → AI            actions
+     *   no_ai   fuzzy → synonym                 assertions: an AI guess must never make a check pass
+     *   off     exact only                      not_visible, where "not found" IS the answer
+     */
+    smart?: 'full' | 'no_ai' | 'off';
+    /** The step's instruction, given to the AI tier as context. */
+    intent?: string;
   },
 ): Promise<Resolved> {
   // Interpolate here rather than at each call site: a mission that substitutes
@@ -291,6 +305,35 @@ export async function resolveTarget(
       description: candidate.description,
       descriptor: candidate.descriptor,
     };
+  }
+
+  // Wording drift between the test case and the shipped page: try the
+  // tolerant tiers before declaring the element missing.
+  const smart = opts.smart ?? 'no_ai';
+  let aiRefusal: string | undefined;
+  if (smart !== 'off') {
+    const match =
+      (await fuzzyMatch(scope, target, opts.timeoutMs)) ??
+      (await synonymMatch(scope, target, opts.timeoutMs)) ??
+      (smart === 'full' && !target.within ? await aiMatch(page, target, opts.intent) : undefined);
+    if (match && 'refused' in match) {
+      aiRefusal = match.refused;
+    } else if (match) {
+      attempted.push(`${match.strategy}:${match.description}`);
+      return {
+        locator: match.locator,
+        all: match.all,
+        count: match.count,
+        strategy: match.strategy,
+        confidence: match.confidence,
+        description: match.description,
+        descriptor: {},
+        note: match.note,
+        ...(await describeElement(match.locator).then((d) => (d ? { suggested: d } : {}))),
+      };
+    }
+    attempted.push('fuzzy', 'synonym');
+    if (smart === 'full') attempted.push(aiRefusal ? `ai (${aiRefusal})` : 'ai (not configured)');
   }
 
   // Before giving up, look at what IS there. Costs one page evaluation on a

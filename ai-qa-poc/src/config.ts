@@ -18,12 +18,14 @@ export const PATHS = {
   missionsApproved: path.join(ROOT, 'missions', 'approved'),
   /**
    * [R3] Test intents — written before the application exists, so they live
-   * beside the missions rather than inside them. Gate 1 moves draft →
+   * beside the missions rather than inside them. Gate 2 moves draft →
    * approved here; the binding phase (Agent 2a) reads approved/ and writes
    * missions/draft/.
    */
   intentsDraft: path.join(ROOT, 'intents', 'draft'),
   intentsApproved: path.join(ROOT, 'intents', 'approved'),
+  /** Rejected at Gate 3. Kept, so generation does not propose them again. */
+  intentsRejected: path.join(ROOT, 'intents', 'rejected'),
   thinking: path.join(ROOT, 'agent', 'thinking'),
   thinkingConfig: path.join(ROOT, 'agent', 'thinking', 'config.yaml'),
   /** Generated prompt packs — rebuildable, so gitignored. */
@@ -129,12 +131,32 @@ export function loadThinkingConfig(): ThinkingConfig {
  */
 const argvHas = (flag: string): boolean => process.argv.includes(`--${flag}`);
 
+function parseEngine(v: string | undefined): 'chromium' | 'firefox' | 'webkit' | undefined {
+  if (!v) return undefined;
+  const e = v.toLowerCase() === 'safari' ? 'webkit' : v.toLowerCase();
+  if (e === 'chromium' || e === 'firefox' || e === 'webkit') return e;
+  throw new Error(`--browser "${v}" is not chromium, firefox or webkit (safari).`);
+}
+
+function parseViewport(v: string | undefined): 'mobile' | 'tablet' | 'desktop' | { width: number; height: number } | undefined {
+  if (!v) return undefined;
+  if (v === 'mobile' || v === 'tablet' || v === 'desktop') return v;
+  const m = v.match(/^(\d{3,4})x(\d{3,4})$/i);
+  if (m) return { width: Number(m[1]), height: Number(m[2]) };
+  throw new Error(`--viewport "${v}" is not mobile, tablet, desktop or WIDTHxHEIGHT.`);
+}
+
 function argvValue(flag: string): string | undefined {
   const i = process.argv.indexOf(`--${flag}`);
   return i === -1 ? undefined : process.argv[i + 1];
 }
 
 export const RUNTIME = {
+  /**
+   * Run every mission at one screen size: mobile, tablet, desktop, or WxH.
+   * Overrides the mission's own viewport — "run the whole suite on a phone".
+   */
+  viewport: parseViewport(argvValue('viewport') ?? process.env.VIEWPORT),
   /** Headed by default: for a POC, watching it work is most of the value. */
   headed: argvHas('headless') ? false : argvHas('headed') ? true : process.env.HEADED !== 'false',
   slowMo: Number(argvValue('slow-mo') ?? process.env.SLOW_MO ?? 0),
@@ -150,8 +172,20 @@ export const RUNTIME = {
    * the test before it.
    */
   freshState: argvHas('fresh-state') || process.env.FRESH_STATE === 'true',
-  /** Kept for the eventual second browser; POC-1 is Chromium only. */
-  browser: 'chromium' as const,
+  /**
+   * How much evidence each test keeps.
+   *   full     (default) per-step screenshots with the used element outlined,
+   *            a screen recording, API traffic and the Playwright trace — for
+   *            passes too, because a PASS nobody can check is not trusted.
+   *   minimal  the old policy: screenshot, snapshot and trace on failure only.
+   */
+  evidence: (argvValue('evidence') ?? process.env.EVIDENCE ?? 'full') === 'minimal' ? ('minimal' as const) : ('full' as const),
+  /**
+   * Run every mission in one engine: chromium, firefox or webkit (Safari's
+   * engine). Overrides the mission's own `browser`. Unset: each mission's own,
+   * else Chromium.
+   */
+  browser: parseEngine(argvValue('browser') ?? process.env.BROWSER),
 };
 
 /** Path relative to the project root, for evidence listings. */

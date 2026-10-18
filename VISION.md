@@ -26,6 +26,19 @@
 > becomes "does it hold up across requirements nobody tailored it to". R5 also
 > corrects §8, which described an execution model that is not the one that got
 > built. Changes are marked **[R5]**.
+>
+> **Revision 6.** The analysis gets a gate of its own. Answering the questions
+> was never the same as approving the analysis: it also ranks the risks, picks
+> the smoke set and rules coverage categories out, and every test case inherits
+> those calls. So there are now three human gates, renumbered throughout this
+> document: **Gate 1** the analysis (`approve-analysis`, refused while questions
+> are open, stale when the analysis, requirement or an answer changes) ·
+> **Gate 2** the test cases, previously Gate 1 (reviewed as a sheet in the
+> team's format, Approve / Reject / Rework per row) · **Gate 2.5** binding
+> review, previously Gate 1.5 · **Gate 3** results, previously Gate 2 (a
+> review page laid out as Jira fields, posted to Jira by a person, never by
+> the system). The Thinker Agent now runs headless on the Claude
+> subscription instead of by copy-paste. Changes are marked **[R6]**.
 
 ---
 
@@ -73,7 +86,7 @@ Risk Analysis                    ↓
 Test Intent Generation      HUMAN ANSWERS      [R3]
 Smoke Selection                  ↓
           ↓ ←────────────────────┘
-HUMAN REVIEW  (Gate 1)      — business intent, no UI
+HUMAN REVIEW  (Gate 2)      — business intent, no UI
           ↓
 Approved Test Intents                          [R3]
 
@@ -85,7 +98,7 @@ AGENT 2, phase 2a — Bind                       [R4]
           ↓
 Draft Missions  +  Reconciliation report       [R4]
           ↓                    ↳ intents with no control
-HUMAN REVIEW  (Gate 1.5)       ↳ controls with no intent
+HUMAN REVIEW  (Gate 2.5)       ↳ controls with no intent
   exceptions only              ↳ ambiguous / weak bindings
           ↓
 Approved Test Missions
@@ -101,7 +114,7 @@ Evidence + Replayable Trace             [R2]
           ↓
 Failure Classification (separate pass)  [R2]
           ↓
-HUMAN REVIEW  (Gate 2)
+HUMAN REVIEW  (Gate 3)
           ↓
 PASS / BUG / BLOCKED  ──→  Jira issue          [R3]
 ```
@@ -113,7 +126,7 @@ while preserving human ownership of quality decisions.
 
 ## 3. Three Logical Agents **[R4 — was five in R3]**
 
-### Agent 1 — QA Thinking Agent
+### Agent 1 — QA Thinker Agent
 
 This is the "brain".
 
@@ -233,7 +246,7 @@ driven standalone by `npm run explore`.
 A cheap, separate reasoning pass — deliberately not the executing agent.
 
 * **Input:** the structured result, the evidence, the replayable trace, the mission
-* **Output:** a proposed classification and a confidence, for the human at Gate 2
+* **Output:** a proposed classification and a confidence, for the human at Gate 3
 
 Rationale: an agent that just failed is the least reliable narrator of why it
 failed. Self-classification lets `AGENT_EXECUTION_FAILURE` quietly mask a real
@@ -243,10 +256,10 @@ product defect, and vice versa — which directly defeats success criterion 9.
 
 ## 4. Human Gates
 
-### Gate 1 — Test Design Approval
+### Gate 2 — Test Design Approval
 
 ```text
-Requirement → Thinking Agent → ai-qa-poc/missions/draft/*.json
+Requirement → Thinker Agent → ai-qa-poc/missions/draft/*.json
            → Human QA review
            → ai-qa-poc/missions/approved/*.json
 ```
@@ -259,7 +272,7 @@ no tooling to build, and it yields a real audit trail.
 Agent 2 MUST refuse to execute any mission that is not in `ai-qa-poc/missions/approved/`
 with a populated `approval` block.
 
-### Gate 1.5 — Binding Review, by Exception **[R4]**
+### Gate 2.5 — Binding Review, by Exception **[R4]**
 
 **[R5] Enforced once, run twice.** The web UI at `ai-qa-poc/web/` used to
 reimplement this gate — its own copy of the schema check, with no check at all
@@ -298,7 +311,7 @@ wrong one". That is the case worth a human's five seconds.
 
 ---
 
-### Gate 2 — Result / Defect Approval
+### Gate 3 — Result / Defect Approval
 
 ```text
 Browser execution → PASS / FAIL / BLOCKED / INCONCLUSIVE
@@ -316,7 +329,7 @@ during the initial POC.
 
 ## 4a. Clarifications Are an Artifact, Not a Conversation **[R3]**
 
-§5 hard rule 1 already says the Thinking Agent must report a gap rather than
+§5 hard rule 1 already says the Thinker Agent must report a gap rather than
 fill it in. That was prose, and nothing enforced it. Worse, the answers were
 given in a chat window and died with the tab — so the same question gets asked
 again on the next story.
@@ -338,7 +351,7 @@ Three rules make it more than a document:
 2. **Approval is refused while any dependency is `open`.** That is how "never
    invent expected behaviour" stops being advice and becomes a gate. The intent
    may exist as a draft — the agent writes the question and the intent together,
-   which is the honest order — but it cannot pass Gate 1.
+   which is the honest order — but it cannot pass Gate 2.
 3. **`assumed` is allowed and is stamped.** Sometimes waiting is not an option.
    An assumption is a legitimate answer, but the intent carries
    `assumption: true` into the run report, so nobody mistakes a guess for a
@@ -375,7 +388,7 @@ Fields added in R2, and why each one exists:
 | `budget` | §11 asked for token/time control but nothing enforced it. Caps discovery so one confused agent cannot burn the budget. |
 | `auth` | "Admin is authenticated" was a precondition with no mechanism — and it decides whether POC-1 runs at all. |
 | `evidence_policy` | Named in R1 prose, missing from the R1 contract. |
-| `approval` | Makes Gate 1 machine-checkable. |
+| `approval` | Makes Gate 2 machine-checkable. |
 
 A worked example lives at [ai-qa-poc/missions/draft/SM-001.json](ai-qa-poc/missions/draft/SM-001.json).
 
@@ -403,7 +416,7 @@ Every assertion carries both a human sentence and a machine-checkable form:
 }
 ```
 
-`statement` is what the human reviews at Gate 1. `check` is what the executing
+`statement` is what the human reviews at Gate 2. `check` is what the executing
 agent must turn into a real Playwright expectation. If the agent cannot express
 a `check` as an expectation, the outcome is `INCONCLUSIVE` — never PASS.
 
@@ -413,7 +426,7 @@ a `check` as an expectation, the outcome is `INCONCLUSIVE` — never PASS.
 
 The R2 mission mixes *what we are testing* with *where to click*:
 `starting_context.page`, `url_hint`, targets carrying `role` and `name`. That
-is fine once the application exists. Before it exists, the Thinking Agent has
+is fine once the application exists. Before it exists, the Thinker Agent has
 two options and both are bad: invent the UI, or write something too vague to
 run.
 
@@ -447,13 +460,13 @@ check to bind, and still says nothing about the UI.
 ### Mission — the intent bound to a real page
 
 Unchanged from R2, and still what the Execution Agent consumes. Phase 2a
-produces it; a human reviews the exceptions at Gate 1.5.
+produces it; a human reviews the exceptions at Gate 2.5.
 
 ### Why the split earns its keep
 
-* **Gate 1 review gets cheap.** The human reviews business intent — readable by
+* **Gate 2 review gets cheap.** The human reviews business intent — readable by
   the BA who wrote the story. Today they review locator descriptors. VISION §17
-  names review cost as the hidden failure mode of Gate 1; this is the direct
+  names review cost as the hidden failure mode of Gate 2; this is the direct
   attack on it.
 * **Intent survives redesigns.** The login page is rebuilt; the intent is
   untouched and only the binding is regenerated. Under R2 the whole mission was
@@ -467,7 +480,7 @@ An extra artifact, and a binding pass before execution rather than during it.
 
 R3 also added a gate on every binding, and that cost was real: if the binder is
 usually right, reviewing all of it is theatre. **[R4]** resolves this by
-reviewing exceptions only (§4 Gate 1.5). The exception rate is tracked from the
+reviewing exceptions only (§4 Gate 2.5). The exception rate is tracked from the
 first build — if it approaches zero, the review disappears on its own; if it is
 high, the binder is not good enough yet and that is worth knowing early.
 
@@ -680,7 +693,7 @@ without spending LLM reasoning on every run.
 
 ## 10. Locator Strategy
 
-Do not make the Thinking Agent responsible for permanent CSS/XPath locators.
+Do not make the Thinker Agent responsible for permanent CSS/XPath locators.
 
 ```text
 Test intent → semantic description → execution agent
@@ -788,7 +801,7 @@ nuance is carried by `confidence` rather than by a second enum value.
 * **Agent 2 emits:** status, steps executed, expected, actual, evidence, trace.
 * **Agent 2 does NOT emit** `classification`.
 * **Agent 3 (§3) proposes** `classification` + `confidence` from that output.
-* **The human at Gate 2** accepts or overrides — and the override is recorded.
+* **The human at Gate 3** accepts or overrides — and the override is recorded.
 
 The disagreement rate between Agent 3 and the human is itself a quality metric
 worth watching.
@@ -798,7 +811,7 @@ worth watching.
 ## 13b. From Failure to Ticket **[R3]**
 
 ```text
-Run artifacts → defect candidate → Gate 2 (human) → Jira issue
+Run artifacts → defect candidate → Gate 3 (human) → Jira issue
 ```
 
 **Inbound first, because it is the cheap win.** The story is already in Jira.
@@ -823,7 +836,7 @@ Outbound, three things decide whether the team trusts it:
    from the executor for exactly this reason: an agent that just failed is the
    least reliable narrator of why.
 
-Automatic creation without Gate 2 stays forbidden in POC-1 (§4). It is
+Automatic creation without Gate 3 stays forbidden in POC-1 (§4). It is
 revisited when the Agent 3 / human disagreement rate is low enough to justify
 it — measured, not assumed.
 
@@ -901,7 +914,7 @@ What still stands between this and production is listed in §14a. It is a short
 list, and none of it is a rewrite.
 
 Still NOT in scope: full regression suites, all browsers, mobile, performance
-testing, CI/CD triggering, automatic defect creation without Gate 2, self-healing
+testing, CI/CD triggering, automatic defect creation without Gate 3, self-healing
 locators, vector databases, RAG.
 
 ---
@@ -937,23 +950,23 @@ Per requirement, recorded as it goes:
 | Measure | Why it decides something |
 |---|---|
 | Gaps raised, and how many changed the requirement | The cheapest defect this system finds. A gap closed at story time costs a conversation; the same gap at UAT costs a release. |
-| Gate 1 review minutes per intent | The hidden failure mode (§17). Intents costing twenty minutes each are a net loss however good execution is. |
+| Gate 2 review minutes per intent | The hidden failure mode (§17). Intents costing twenty minutes each are a net loss however good execution is. |
 | Intents blocked on open clarifications | High early is healthy. Still blocked at the end means questions are not being answered — a process finding, not a tool finding. |
-| Binding exception rate | Near 0% means Gate 1.5 is theatre and should merge into Gate 1. Near 100% means the binder is not earning its place. The number decides, not an opinion. |
+| Binding exception rate | Near 0% means Gate 2.5 is theatre and should merge into Gate 2. Near 100% means the binder is not earning its place. The number decides, not an opinion. |
 | Intents that could not bind at all | Missing features and renamed controls, found before any browser run is paid for. |
 | Controls no intent covers | Coverage holes nobody would otherwise have listed. |
 | PASS / FAIL / BLOCKED / INCONCLUSIVE | INCONCLUSIVE is not failure — it is the system declining to guess. A rate of zero is suspicious, not excellent. |
-| Defects confirmed vs. rejected at Gate 2 | The false-defect rate, and the number that decides whether anyone keeps reading the reports. |
+| Defects confirmed vs. rejected at Gate 3 | The false-defect rate, and the number that decides whether anyone keeps reading the reports. |
 | Human minutes to a trustworthy smoke decision | §17's KPI, per requirement, against the manual baseline. |
 
 ### What would make this a failure, stated in advance
 
 Deciding afterwards what counts as success is how a POC always succeeds.
 
-* Gate 1 review time **not falling** across requirements 1 → 6. If reviewing the
+* Gate 2 review time **not falling** across requirements 1 → 6. If reviewing the
   twentieth intent costs what the first did, the system is generating work rather
   than absorbing it.
-* A **rising** false-defect rate at Gate 2 across the set.
+* A **rising** false-defect rate at Gate 3 across the set.
 * Any requirement that needs an **engine change** to get through the pipeline.
 * Total human minutes per requirement **not below** the manual baseline by the
   sixth one.
@@ -972,13 +985,13 @@ Thinking:   Cloud LLM in a chat seat you already pay for  (npm run think / impor
                 ↓
             Test Intent JSON, schema-validated, UI-free        [R3]
                 ↓
-            Human review (Gate 1, via git)
+            Human review (Gate 2, via git)
                 ↓
 Binding:    Agent 2a against a page capture                    [R4]
                 ↓
             Test Mission JSON + reconciliation report
                 ↓
-            Human review (Gate 1.5 — exceptions only)          [R4]
+            Human review (Gate 2.5 — exceptions only)          [R4]
                 ↓
 Execution:  Deterministic executor, Playwright library API     [R5]
                 ↓
@@ -986,7 +999,7 @@ Execution:  Deterministic executor, Playwright library API     [R5]
                 ↓            ↘ Agent 2c exploration, concurrent [R4]
 Classify:   Separate cheap pass (Agent 3)
                 ↓
-            Human review (Gate 2)
+            Human review (Gate 3)
                 ↓
             Defect report, deduplicated, ready to paste        [R4]
 ```
@@ -1045,11 +1058,11 @@ captured in week one, **before the first agent run**, in
 1. **Manual baseline** — the QA Lead's actual wall-clock minutes to smoke this
    feature by hand today.
 2. **Mission edit rate** — what fraction of AI-generated missions the human
-   edits at Gate 1, and the review minutes spent per mission.
+   edits at Gate 2, and the review minutes spent per mission.
 
 The second matters more. Missions that take twenty minutes each to review are a
 net loss even if execution is free. **Review cost is the hidden failure mode of
-Gate 1**, and it is the number most likely to kill this approach quietly.
+Gate 2**, and it is the number most likely to kill this approach quietly.
 
 ---
 

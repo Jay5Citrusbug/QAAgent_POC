@@ -157,7 +157,7 @@ if (has('answer')) {
       for (const i of affected) {
         const recorded = i.approval?.clarification_hashes?.[id];
         const stale = recorded !== undefined && recorded !== now;
-        console.log(`    ${i.test_id}${stale ? '  ← STALE, re-review at Gate 1' : ''}`);
+        console.log(`    ${i.test_id}${stale ? '  ← STALE, re-review at Gate 2' : ''}`);
       }
       console.log('');
       console.log('They are still in intents/approved/ and their approval stamps still look');
@@ -213,7 +213,7 @@ if (open.length) {
   if (blockedIntents.size) {
     console.log('');
     console.log(
-      `${blockedIntents.size} intent(s) cannot pass Gate 1 until these are answered: ` +
+      `${blockedIntents.size} intent(s) cannot pass Gate 2 until these are answered: ` +
         `${[...blockedIntents].sort().join(', ')}`,
     );
   }

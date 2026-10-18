@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { PATHS, rel } from './config.js';
+import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from '@playwright/test';
+import { PATHS, rel, RUNTIME } from './config.js';
 import type { TestMission } from './types.js';
 
 /**
@@ -78,35 +78,62 @@ export interface Lease {
   /** Named so a result can say where it started, e.g. "EC-016". */
   inheritedFrom?: string;
   resetReason?: string;
+  /** Screen recording of this page, when evidence is `full`. */
+  video?: { path: string; offsetMs: number; sharedWith: string[] };
 }
 
 export type SessionStatePolicy = 'reuse' | 'fresh_page' | 'fresh_context' | 'read_only';
 
+export type Engine = 'chromium' | 'firefox' | 'webkit';
+const ENGINES: Record<Engine, BrowserType> = { chromium, firefox, webkit };
+const ENGINE_NAME: Record<Engine, string> = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit (Safari engine)' };
+
+/** The run's --browser wins over the mission's own; Chromium otherwise. */
+export function engineFor(mission: TestMission): Engine {
+  return RUNTIME.browser ?? mission.browser ?? 'chromium';
+}
+
 export class BrowserSession {
   private browser?: Browser;
+  private engine?: Engine;
   private context?: BrowserContext;
   private page?: Page;
   private key?: string;
   private lastMission?: string;
+  /** When the current page opened, and which tests have used it — for video offsets. */
+  private pageOpenedAt = 0;
+  private pageMissions: string[] = [];
 
   constructor(
     private readonly options: { headless: boolean; slowMo?: number; alwaysFresh?: boolean },
   ) {}
 
-  private async launch(): Promise<Browser> {
-    if (this.browser?.isConnected()) return this.browser;
+  private async launch(engine: Engine, log: (line: string) => void): Promise<Browser> {
+    if (this.browser?.isConnected() && this.engine === engine) return this.browser;
+    if (this.browser) {
+      // A different engine: nothing carries over between engines, by design.
+      log(`Switching browser engine: ${this.engine ? ENGINE_NAME[this.engine] : '?'} → ${ENGINE_NAME[engine]}.`);
+      await this.close();
+    }
     try {
-      this.browser = await chromium.launch({
+      this.browser = await ENGINES[engine].launch({
         headless: this.options.headless,
         ...(this.options.slowMo ? { slowMo: this.options.slowMo } : {}),
       });
+      this.engine = engine;
     } catch (err) {
       throw new BrowserLaunchError(
-        `Chromium would not start: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}. ` +
-          'Run "npm run browsers".',
+        `${ENGINE_NAME[engine]} would not start: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}. ` +
+          (engine === 'chromium' ? 'Run "npm run browsers".' : 'Run "npm run browsers:all".'),
       );
     }
     return this.browser;
+  }
+
+  /** "Firefox 140.0" — which engine and version the current page runs in. */
+  describeBrowser(): string | undefined {
+    if (!this.engine || !this.browser) return undefined;
+    return `${ENGINE_NAME[this.engine]} ${this.browser.version()}`;
   }
 
   /**
@@ -117,7 +144,7 @@ export class BrowserSession {
    * being an optimisation and it being a hidden variable.
    */
   async lease(mission: TestMission, log: (line: string) => void, forceFreshContext = false): Promise<Lease> {
-    const browser = await this.launch();
+    const browser = await this.launch(engineFor(mission), log);
     const key = authKey(mission);
     const policy: SessionStatePolicy = mission.execution_policy?.state ?? 'reuse';
 
@@ -142,6 +169,8 @@ export class BrowserSession {
       const lease: Lease = { page: this.page, context: this.context, fresh: false };
       if (this.lastMission !== undefined) lease.inheritedFrom = this.lastMission;
       this.lastMission = mission.test_id;
+      const video = await this.videoFor(mission.test_id);
+      if (video) lease.video = video;
       return lease;
     }
 
@@ -155,6 +184,11 @@ export class BrowserSession {
     log(`${keepContext ? 'Fresh page' : 'Fresh browser context'} — ${why}.`);
 
     const opts: Parameters<Browser['newContext']>[0] = { viewport: { width: 1440, height: 900 } };
+    if (RUNTIME.evidence === 'full') {
+      // One file per page. Pages are reused across tests, so each result also
+      // records where in the recording it starts.
+      opts.recordVideo = { dir: path.join(PATHS.runs, '_video'), size: { width: 1280, height: 800 } };
+    }
     const strategy = mission.auth?.strategy ?? 'storage_state';
     if (strategy === 'storage_state') {
       const ref = mission.auth?.storage_state_ref ?? mission.role.toLowerCase();
@@ -173,9 +207,30 @@ export class BrowserSession {
 
     this.context ??= await browser.newContext(opts);
     this.page = await this.context.newPage();
+    this.pageOpenedAt = Date.now();
+    this.pageMissions = [];
     this.key = key;
     this.lastMission = mission.test_id;
-    return { page: this.page, context: this.context, fresh: true, resetReason: why };
+    const lease: Lease = { page: this.page, context: this.context, fresh: true, resetReason: why };
+    const video = await this.videoFor(mission.test_id);
+    if (video) lease.video = video;
+    return lease;
+  }
+
+  private async videoFor(testId: string): Promise<Lease['video']> {
+    this.pageMissions.push(testId);
+    const video = this.page?.video();
+    if (!video) return undefined;
+    try {
+      return {
+        path: await video.path(),
+        offsetMs: Math.max(0, Date.now() - this.pageOpenedAt),
+        // Shared by reference: tests that reuse this page later are appended.
+        sharedWith: this.pageMissions,
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -190,7 +245,9 @@ export class BrowserSession {
   }
 
   private async disposeContext(): Promise<void> {
+    // Closing the context is what finalises its video files.
     await this.context?.close().catch(() => undefined);
+    this.pageMissions = [];
     this.context = undefined;
     this.page = undefined;
     this.key = undefined;

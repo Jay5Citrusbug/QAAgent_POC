@@ -67,7 +67,7 @@
   "assertions": [
     {
       "id": "A1",
-      "statement": "What a human should read at Gate 1 to judge whether this test is worth approving.",
+      "statement": "What a human should read at Gate 2 to judge whether this test is worth approving.",
       "check": {
         "type": "visible",
         "target": {

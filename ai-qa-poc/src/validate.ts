@@ -3,6 +3,7 @@ import path from 'node:path';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { PATHS } from './config.js';
+import { joinsTwoClauses } from './intents.js';
 import type { ExecutionResult, TestMission } from './types.js';
 
 function compile(schemaFile: string): ValidateFunction {
@@ -38,7 +39,7 @@ export function validateResult(data: unknown): ValidationOutcome {
 
 /**
  * Semantic checks the JSON schema cannot express — the mission is well-formed
- * but still wrong. Returned as warnings so a human sees them at Gate 1.
+ * but still wrong. Returned as warnings so a human sees them at Gate 2.
  */
 export function lintMission(m: TestMission): string[] {
   const warnings: string[] = [];
@@ -56,6 +57,22 @@ export function lintMission(m: TestMission): string[] {
   }
 
   for (const a of m.assertions) {
+    if (a.check.type === 'api_response') {
+      if (!a.check.request?.url_contains) {
+        warnings.push(`Assertion ${a.id}: api_response has no request.url_contains — it cannot know which call to check (INCONCLUSIVE until settled).`);
+      }
+      if (a.check.json_path && a.check.value === undefined) {
+        warnings.push(`Assertion ${a.id}: json_path "${a.check.json_path}" has no value to compare with — it only checks that the field exists.`);
+      }
+      if (a.check.status === undefined && !a.check.json_path && a.check.body_contains === undefined) {
+        warnings.push(`Assertion ${a.id}: api_response checks only that the call was made — add status, json_path or body_contains.`);
+      }
+      continue;
+    }
+    if (a.check.type === 'api_no_errors' || a.check.type === 'layout_sound' || a.check.type === 'accessible' || a.check.type === 'looks_like_baseline' || a.check.type === 'performance_budget') continue;
+    if (a.check.type === 'ui_matches_api' && (!a.check.request?.url_contains || !a.check.json_path)) {
+      warnings.push(`Assertion ${a.id}: ui_matches_api needs request.url_contains and json_path — which call and which field to compare with.`);
+    }
     const needsTarget = a.check.type !== 'url_contains';
     if (needsTarget && !a.check.target) {
       warnings.push(`Assertion ${a.id}: check type "${a.check.type}" needs a target.`);
@@ -100,7 +117,7 @@ export function lintMission(m: TestMission): string[] {
      * This is the failure mode behind both false passes found so far. A
      * mission asserted the logo "is visible and rendered (not a broken image
      * placeholder)" with a `visible` check — but a broken <img> IS visible,
-     * so it passed against a 404ing image. The human reading Gate 1 sees the
+     * so it passed against a 404ing image. The human reading Gate 2 sees the
      * promise in the statement and assumes the check delivers it.
      */
     const says = a.statement.toLowerCase();
@@ -160,6 +177,24 @@ export function lintMission(m: TestMission): string[] {
   }
 
   for (const [i, action] of m.actions.entries()) {
+    if (action.action === 'fail_requests') {
+      if (!action.request?.url_contains || !action.failure) {
+        warnings.push(`Action ${i + 1} (fail_requests): needs request.url_contains and failure.`);
+      } else if (action.request.url_contains === 'SET-AT-GATE-2.5') {
+        warnings.push(`Action ${i + 1} (fail_requests): the endpoint to fail was never chosen — the fault will hit nothing and the test proves nothing.`);
+      }
+      if (m.actions.slice(0, i).some((a) => a.action !== 'fail_requests' && a.action !== 'navigate')) {
+        warnings.push(`Action ${i + 1} (fail_requests): comes after the user already acted — calls made before it were not failed.`);
+      }
+    }
+    if (action.action === 'api_request' && !action.url) {
+      warnings.push(`Action ${i + 1} (api_request): needs a url (the path, relative to base_url).`);
+    }
+    if ((action.action === 'api_request' || action.action === 'navigate') && /\{saved\.(\w+)\}/.test(`${action.url ?? ''}${JSON.stringify(action.body ?? '')}`)) {
+      const used = [...`${action.url ?? ''}${JSON.stringify(action.body ?? '')}`.matchAll(/\{saved\.(\w+)\}/g)].map((x) => x[1]);
+      const savedBefore = new Set(m.actions.slice(0, i).flatMap((x) => x.save?.map((sv) => sv.as) ?? []));
+      for (const name of used) if (!savedBefore.has(name!)) warnings.push(`Action ${i + 1} (${action.action}): uses {saved.${name}}, which no earlier step saves.`);
+    }
     const needsTarget: string[] = ['click', 'fill', 'type', 'select', 'check', 'upload', 'hover'];
     if (needsTarget.includes(action.action) && !action.target) {
       warnings.push(`Action ${i + 1} (${action.action}): needs a target.`);
@@ -218,8 +253,8 @@ export function lintMission(m: TestMission): string[] {
     );
   }
 
-  if (/\band\b/i.test(m.test_objective)) {
-    warnings.push('test_objective contains "and" — this may really be two missions.');
+  if (joinsTwoClauses(m.test_objective)) {
+    warnings.push('test_objective joins two actions or outcomes with "and" — this may really be two missions.');
   }
 
   return warnings;
@@ -227,6 +262,21 @@ export function lintMission(m: TestMission): string[] {
 
 export function readMissionFile(file: string): TestMission {
   return JSON.parse(fs.readFileSync(file, 'utf8')) as TestMission;
+}
+
+/**
+ * Does this mission belong to `feature` (the key used by --feature)?
+ *
+ * Bound missions carry the key itself; hand-written ones often carry a
+ * descriptive label ("E-commerce header") but cite a requirement under
+ * input/feature-<key>/. Either counts. With no feature given, everything does —
+ * which is what a bare `npm run run-mission` has always meant.
+ */
+export function missionInFeature(m: TestMission, feature?: string): boolean {
+  if (!feature) return true;
+  if (m.feature === feature) return true;
+  const locator = m.requirement_ref?.locator?.replace(/\\/g, '/') ?? '';
+  return locator.includes(`feature-${feature}/`);
 }
 
 export function isApproved(m: TestMission): boolean {

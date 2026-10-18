@@ -4,7 +4,7 @@
  *   npm run report                # latest run of every test id
  *   npm run report -- SM-001      # one test id
  *
- * Useful after a human edits `human_review` on a result at Gate 2 — the report
+ * Useful after a human edits `human_review` on a result at Gate 3 — the report
  * regenerates without re-running anything against STAGE.
  */
 import fs from 'node:fs';

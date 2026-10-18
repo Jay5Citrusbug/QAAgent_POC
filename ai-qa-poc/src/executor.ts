@@ -9,6 +9,15 @@ import { describeCandidates, TargetAmbiguousError, TargetNotFoundError } from '.
 import { Evidence, newRunId } from './evidence.js';
 import { LocatorCache } from './locator-cache.js';
 import { Observer } from './observer.js';
+import { capture, captureHighlighted, NetworkLog } from './step-evidence.js';
+import { apiHealthFindings } from './api-checks.js';
+import { FaultInjector } from './faults.js';
+import { forgetSaved } from './interpolate.js';
+import { describeViewport, layoutFindings, sweepLayout, viewportSize } from './layout.js';
+import { a11yFindings, runAxe } from './a11y.js';
+import { SecurityWatch } from './security.js';
+import { performanceFindings, readMetrics } from './performance.js';
+import { capturePage, compareWithBaseline, describeChange, viewportKey } from './visual.js';
 import type {
   AssertionResult,
   ExecutionResult,
@@ -73,6 +82,8 @@ async function runAttempt(
   baseUrl: string,
   isReplay: boolean,
   observer?: Observer,
+  network?: NetworkLog,
+  faults?: FaultInjector,
 ): Promise<Attempt> {
   const startedAt = Date.now();
   const steps: StepRecord[] = [];
@@ -88,12 +99,21 @@ async function runAttempt(
   const assertions: AssertionResult[] = [];
   const evaluatedIds = new Set<string>();
 
+  const full = RUNTIME.evidence === 'full';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const tag = isReplay ? 'replay-' : '';
+
   const assertCtx = {
     page,
     cache,
     runId,
     timeoutMs: actionTimeout,
     maxDiscoveryAttempts: maxAttempts,
+    ...(network ? { network } : {}),
+    visual: { testId: mission.test_id, evidenceDir: ev.dir },
+    ...(full
+      ? { onResolved: (loc: import('@playwright/test').Locator, id: string) => captureHighlighted(page, loc, ev, `${tag}check-${id}`) }
+      : {}),
   };
 
   const actionCtx = {
@@ -104,6 +124,30 @@ async function runAttempt(
     runId,
     actionTimeoutMs: actionTimeout,
     maxDiscoveryAttempts: maxAttempts,
+    ...(faults ? { faults } : {}),
+    ...(network ? { network } : {}),
+    ...(full
+      ? {
+          onResolved: (resolved: { locator: import('@playwright/test').Locator }, idx: number) =>
+            captureHighlighted(page, resolved.locator, ev, `${tag}step-${pad(idx)}-target`),
+        }
+      : {}),
+  };
+
+  /** The page after a step: screenshot and URL, full evidence only. */
+  const afterStep = async (step: StepRecord) => {
+    if (!full) return;
+    const shot = await capture(page, ev, `${tag}step-${pad(step.index)}`);
+    if (shot) step.screenshot = shot;
+    if (!page.isClosed()) step.url = page.url();
+  };
+  /** Checks that examined no single element (URL, sweeps) still get a picture of the page. */
+  const withPageShot = async (res: AssertionResult) => {
+    if (full && !res.screenshot) {
+      const shot = await capture(page, ev, `${tag}check-${res.id}`);
+      if (shot) res.screenshot = shot;
+    }
+    return res;
   };
 
   // Landing page, if the mission gave a hint. Keeps the agent out of the rest
@@ -159,7 +203,7 @@ async function runAttempt(
         failureKind = 'assertion_unevaluable';
         break;
       }
-      const res = await evaluateAssertion(assertCtx, target);
+      const res = await withPageShot(await evaluateAssertion(assertCtx, target));
       assertions.push(res);
       evaluatedIds.add(res.id);
       steps.push({
@@ -168,6 +212,10 @@ async function runAttempt(
         instruction: action.instruction,
         outcome: res.passed ? 'OK' : 'FAILED',
         error: res.error,
+        ...(res.screenshot ? { screenshot: res.screenshot } : {}),
+        ...(res.resolution_strategy ? { resolution_strategy: res.resolution_strategy } : {}),
+        ...(res.resolution_note ? { resolution_note: res.resolution_note } : {}),
+        ...(!page.isClosed() ? { url: page.url() } : {}),
       });
       ev.log(`  ${res.passed ? 'assertion held' : 'assertion did not hold'}: ${res.statement}`);
       if (!res.passed && (res.critical ?? true)) {
@@ -179,35 +227,41 @@ async function runAttempt(
 
     try {
       const { step, trace: traceStep } = await performAction(actionCtx, action, steps.length + 1);
+      await afterStep(step);
       steps.push(step);
       if (traceStep) trace.push(traceStep);
       if (step.resolved_locator) {
         ev.log(`  resolved via ${step.resolution_strategy}: ${step.resolved_locator}`);
       }
+      if (step.resolution_note) ev.log(`  note: ${step.resolution_note}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
 
       if (action.tolerate_failure && mission.expected_outcome === 'blocked') {
         // The application was supposed to refuse this. Not fatal — the
         // assertions still decide whether the refusal was correct and visible.
-        steps.push({
+        const tolerated: StepRecord = {
           index: steps.length + 1,
           action: action.action,
           instruction: action.instruction,
           outcome: 'TOLERATED_FAILURE',
           error: message,
-        });
+        };
+        await afterStep(tolerated);
+        steps.push(tolerated);
         ev.log(`  step failed as the mission expects (tolerate_failure): ${message}`);
         continue;
       }
 
-      steps.push({
+      const failedStep: StepRecord = {
         index: steps.length + 1,
         action: action.action,
         instruction: action.instruction,
         outcome: 'FAILED',
         error: message,
-      });
+      };
+      await afterStep(failedStep);
+      steps.push(failedStep);
 
       failureKind =
         err instanceof TargetNotFoundError
@@ -232,7 +286,7 @@ async function runAttempt(
   if (flowCompleted) {
     for (const assertion of mission.assertions) {
       if (evaluatedIds.has(assertion.id)) continue;
-      const res = await evaluateAssertion(assertCtx, assertion);
+      const res = await withPageShot(await evaluateAssertion(assertCtx, assertion));
       assertions.push(res);
       ev.log(`Assertion ${res.id}: ${res.passed ? 'held' : 'did not hold'} — ${res.statement}`);
     }
@@ -334,7 +388,9 @@ export async function runMission(
   for (const p of mission.preconditions) ev.log(`Precondition (assumed): ${p}`);
 
   const evidencePolicy = mission.evidence_policy ?? {};
-  const wantTrace = evidencePolicy.trace ?? 'retain_on_failure';
+  // Full evidence keeps the trace for passes too: it is the step-by-step replay
+  // a reviewer opens to see HOW a test passed.
+  const wantTrace = RUNTIME.evidence === 'full' ? 'always' : (evidencePolicy.trace ?? 'retain_on_failure');
 
   let lease: Lease | undefined;
   let page: Page | undefined;
@@ -343,10 +399,30 @@ export async function runMission(
   let replay: ExecutionResult['replay'];
   let fatal: { kind: FailureKind; message: string } | undefined;
   let consoleLog: ((msg: ConsoleMessage) => void) | undefined;
+  let network: NetworkLog | undefined;
+  let faults: FaultInjector | undefined;
+  let security: SecurityWatch | undefined;
+  let perf: ExecutionResult['performance'];
+  let restoreViewport: { width: number; height: number } | undefined;
+  let viewportLabel: string | undefined;
+  let browserLabel: string | undefined;
+  let visual: ExecutionResult['visual'];
 
   try {
     lease = await activeSession().lease(mission, (line) => ev.log(line), options.isReplay ?? false);
     page = lease.page;
+    browserLabel = activeSession().describeBrowser();
+    if (browserLabel) ev.log(`Browser ${browserLabel}`);
+
+    // Screen size: the run's --viewport wins over the mission's own. The page
+    // is shared with the next mission, so the old size is put back afterwards.
+    const wanted = RUNTIME.viewport ?? mission.viewport;
+    if (wanted) {
+      restoreViewport = page.viewportSize() ?? undefined;
+      await page.setViewportSize(viewportSize(wanted));
+      viewportLabel = describeViewport(wanted);
+      ev.log(`Screen size ${viewportLabel}`);
+    }
 
     if (wantTrace !== 'never') {
       await lease.context.tracing.start({ screenshots: true, snapshots: true, sources: false });
@@ -364,10 +440,84 @@ export async function runMission(
     // experienced tester notices a broken logo while testing the cart.
     observer = new Observer(page);
     observer.start();
+    security = new SecurityWatch(page);
+    security.start();
 
-    attempt = await runAttempt(mission, page, cache, ev, runId, baseUrl, options.isReplay ?? false, observer);
+    // Always recorded: API checks and API health need it. Only full evidence
+    // writes it to disk.
+    network = new NetworkLog(page);
+    network.start();
+
+    // Faults a mission injects are planned, so neither the observer nor API
+    // health may report them; they are cleared when the mission ends.
+    faults = new FaultInjector(page);
+    const injector = faults;
+    const planned = (method: string, url: string) => injector.isInjected(method, url);
+    observer.ignorePlanned(planned);
+    network.markPlanned(planned);
+
+    attempt = await runAttempt(mission, page, cache, ev, runId, baseUrl, options.isReplay ?? false, observer, network, faults);
 
     await observer.sweepPage();
+    await network.settle();
+    for (const f of apiHealthFindings(network)) observer.add(f);
+    // Layout at this size, whatever the mission asked about: sideways scroll,
+    // controls cut off or covered, tap targets too small on a phone.
+    try {
+      for (const f of layoutFindings(await sweepLayout(page), page.url())) observer.add(f);
+    } catch {
+      /* the page may be mid-navigation; layout is best effort */
+    }
+    // How the page LOOKS, against the approved baseline. Not on replays: the
+    // replay re-checks the verdict, and two screenshots would race the candidate.
+    if (process.env.VISUAL !== 'off' && !options.isReplay) {
+      try {
+        const vr = compareWithBaseline(await capturePage(page), mission.test_id, viewportKey(page), ev.dir);
+        visual = vr;
+        for (const f of [vr.current, vr.diff].filter(Boolean)) ev.add(f as string);
+        if (vr.status === 'changed') {
+          observer.add({
+            key: `visual:${mission.test_id}:${viewportKey(page)}`,
+            kind: 'visual_change',
+            severity: 'medium',
+            summary: `Looks different from the approved baseline: ${describeChange(vr)}`,
+            detail: `Diff (changes in red): ${vr.diff}\nIf the change is intended: npm run visual -- --approve ${mission.test_id} --by "<name>"`,
+            url: page.url(),
+          });
+        } else if (vr.status === 'no_baseline') {
+          ev.log(`Visual: no approved baseline yet — candidate saved. Approve with: npm run visual -- --approve ${mission.test_id} --by "<name>"`);
+        }
+      } catch (err) {
+        ev.log(`Visual comparison skipped: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
+      }
+    }
+
+    // Performance of the page as it last loaded. PERF=off skips it.
+    if (process.env.PERF !== 'off') {
+      try {
+        perf = await readMetrics(page);
+        for (const f of performanceFindings(perf)) observer.add(f);
+      } catch {
+        /* best effort */
+      }
+    }
+
+    // Passive security: cookies as they stand at the end, plus what the watch saw.
+    try {
+      await security.inspectCookies(lease.context);
+      for (const f of security.list()) observer.add(f);
+    } catch {
+      /* best effort */
+    }
+
+    // WCAG A/AA via axe-core on the page the mission ended on. A11Y=off skips it.
+    if (process.env.A11Y !== 'off') {
+      try {
+        for (const f of a11yFindings(await runAxe(page), page.url())) observer.add(f);
+      } catch (err) {
+        ev.log(`Accessibility scan skipped: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
+      }
+    }
 
     // Evidence on failure. Cheap on the happy path, thorough when it matters.
     const failed = attempt.status !== 'PASS';
@@ -376,7 +526,11 @@ export async function runMission(
       if (evidencePolicy.snapshot_on_failure !== false) {
         ev.writeText('failure-snapshot.yaml', await describeCandidates(page));
       }
-    } else if (evidencePolicy.screenshot === 'always' || evidencePolicy.screenshot === 'on_assertion') {
+    } else if (
+      RUNTIME.evidence === 'full' ||
+      evidencePolicy.screenshot === 'always' ||
+      evidencePolicy.screenshot === 'on_assertion'
+    ) {
       await ev.screenshot(page, 'final');
     }
 
@@ -404,6 +558,11 @@ export async function runMission(
      * a crash screen, and passing that on would report this failure twice.
      */
     observer?.stop();
+    security?.stop();
+    await faults?.clear();
+    forgetSaved(runId);
+    if (restoreViewport && page && !page.isClosed()) await page.setViewportSize(restoreViewport).catch(() => undefined);
+    await network?.stop();
     if (consoleLog && page && !page.isClosed()) page.off('console', consoleLog);
     if (fatal) await activeSession().discard();
   }
@@ -474,6 +633,12 @@ export async function runMission(
     );
   }
 
+  let networkRef: ExecutionResult['network'];
+  if (network && RUNTIME.evidence === 'full') {
+    const file = ev.writeJson('network.json', network.list());
+    networkRef = { path: rel(file), total: network.list().length, failed: network.failed };
+  }
+
   // Only learn from a clean run. Caching locators from a failed run bakes in
   // whatever went wrong.
   if (attempt?.status === 'PASS') cache.save();
@@ -489,6 +654,10 @@ export async function runMission(
     test_objective: mission.test_objective,
     environment: mission.environment,
     role: mission.role,
+    ...(browserLabel ? { browser: browserLabel } : {}),
+    ...(viewportLabel ? { viewport: viewportLabel } : {}),
+    ...(visual ? { visual } : {}),
+    ...(perf ? { performance: perf } : {}),
     session: {
       fresh: lease?.fresh ?? true,
       ...(lease?.inheritedFrom ? { inherited_from: lease.inheritedFrom } : {}),
@@ -525,6 +694,16 @@ export async function runMission(
     // asked about, and folding them into the mission's verdict would make
     // both the verdict and the findings less trustworthy.
     incidental_findings: observer?.list() ?? [],
+    ...(lease?.video
+      ? {
+          video: {
+            path: rel(lease.video.path),
+            offset_ms: lease.video.offsetMs,
+            shared_with: lease.video.sharedWith.filter((id) => id !== mission.test_id),
+          },
+        }
+      : {}),
+    ...(networkRef ? { network: networkRef } : {}),
     // Filled in by the classifier pass — never here.
     failure_classification: null,
     classification_source: 'none',
@@ -532,10 +711,48 @@ export async function runMission(
     notes,
   };
 
+  const trust = assessTrust(result);
+  result.evidence_trust = trust.level;
+  result.trust_reasons = trust.reasons;
+
   // The trace is written for every run, pass or fail: it feeds the locator
   // cache, enables the replay, and is what turns a validated flow into a
   // permanent Playwright test later without re-authoring it.
   ev.writeJson('replayable-trace.json', result.replayable_trace);
 
   return result;
+}
+
+/**
+ * How much of this verdict rests on exact, deterministic evidence.
+ *
+ * The reviewer's first question about an AI-run PASS is "how did it pass?".
+ * This answers it up front: `verified` means every element and every check
+ * matched exactly; `review` names each step where a tolerant or AI match was
+ * used, so those are the ones to look at; `weak` means there is no clean
+ * verdict to trust in the first place.
+ */
+export function assessTrust(r: ExecutionResult): { level: 'verified' | 'review' | 'weak'; reasons: string[] } {
+  const reasons: string[] = [];
+  if (r.status !== 'PASS' && r.status !== 'FAIL') {
+    return { level: 'weak', reasons: [`Status is ${r.status} — there is no pass/fail verdict to trust.`] };
+  }
+  for (const s of r.steps_executed) {
+    if (s.resolution_strategy === 'ai') reasons.push(`Step ${s.index}: element chosen by AI — ${s.resolution_note ?? ''}`.trim());
+    else if (s.resolution_strategy === 'synonym' || s.resolution_strategy === 'fuzzy') {
+      reasons.push(`Step ${s.index}: ${s.resolution_note ?? `matched by ${s.resolution_strategy}`}`);
+    }
+  }
+  for (const a of r.assertion_results ?? []) {
+    if (a.match === 'semantic') reasons.push(`Check ${a.id}: passed on meaning, not wording — ${a.match_note ?? ''}`.trim());
+    if (a.resolution_strategy === 'synonym' || a.resolution_strategy === 'fuzzy') {
+      reasons.push(`Check ${a.id}: ${a.resolution_note ?? `element matched by ${a.resolution_strategy}`}`);
+    }
+  }
+  if (r.replay && r.replay.agrees_with_first_run === false) reasons.push('The replay disagreed with the first run.');
+  if (RUNTIME.evidence === 'full' && !r.steps_executed.some((s) => s.screenshot) && r.steps_executed.length > 0) {
+    reasons.push('No step screenshots were captured.');
+    return { level: 'weak', reasons };
+  }
+  return { level: reasons.length ? 'review' : 'verified', reasons };
 }

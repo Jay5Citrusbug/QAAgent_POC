@@ -15,3 +15,6 @@ thinking/prompts/
 !reports/defects/*.json
 reports/defects/*.md
 *.tsbuildinfo
+
+# Visual baselines are generated test data: approved per environment, never committed.
+baselines/

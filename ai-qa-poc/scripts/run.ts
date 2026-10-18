@@ -9,6 +9,7 @@
  * Only missions in missions/approved/ with a populated approval block run. A
  * draft never executes, however valid it looks.
  */
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { applyClassification } from '../src/classify.js';
@@ -16,10 +17,15 @@ import { loadAppContext, PATHS, rel, RUNTIME } from '../src/config.js';
 import { closeBrowserSession, runMission } from '../src/executor.js';
 import { writeReport } from '../src/report.js';
 import { writeFinalReport } from '../src/final-report.js';
+import { writeHtmlReport } from '../src/html-report.js';
+import { buildProposals, writeHealing } from '../src/healing.js';
 import { fromExecution, fromFinding, listDefects, upsert, writeReport as writeDefectReport } from '../src/defect.js';
+import { writeDefectReview } from '../src/defect-review.js';
+import { listExplorations } from '../src/exploration.js';
 import { checkRequirementDrift, describeDrift } from '../src/requirement-hash.js';
-import { isApproved, readMissionFile, validateMission, validateResult } from '../src/validate.js';
+import { isApproved, missionInFeature, readMissionFile, validateMission, validateResult } from '../src/validate.js';
 import { analysisKey, analyzeExecution } from '../src/execution-ai.js';
+import { verify, writeVerification, type VerifyReport } from '../src/verify.js';
 import type { ExecutionResult } from '../src/types.js';
 
 function flag(name: string): string | undefined {
@@ -34,7 +40,7 @@ const featureName = flag('feature');
  * gets swallowed as its value, so `--headless EC-001` silently runs every
  * mission instead of the one asked for.
  */
-const BOOLEAN_FLAGS = new Set(['headless', 'headed', 'copy', 'stdout']);
+const BOOLEAN_FLAGS = new Set(['headless', 'headed', 'copy', 'stdout', 'skip-verify', 'fresh-state']);
 
 const positional = process.argv.slice(2).filter((a, i, arr) => {
   if (a.startsWith('--')) return false;
@@ -51,6 +57,15 @@ const files = fs.existsSync(PATHS.missionsApproved)
       .filter((f) => f.endsWith('.json'))
       .filter((f) => !filter || path.basename(f, '.json') === filter)
       .map((f) => path.join(PATHS.missionsApproved, f))
+      // --feature selects the missions as well as the environment. Without
+      // this, every approved mission of every feature was sent at the one URL.
+      .filter((f) => {
+        try {
+          return missionInFeature(readMissionFile(f), featureName);
+        } catch {
+          return true; // malformed files are reported by the schema check below
+        }
+      })
       .sort()
   : [];
 
@@ -58,7 +73,7 @@ if (files.length === 0) {
   console.error(
     filter
       ? `No approved mission named ${filter}. Approve it first:  npm run approve -- ${filter} --by "<name>"`
-      : 'No approved missions. Draft missions do not run — that is the point of Gate 1.',
+      : 'No approved missions. Draft missions do not run — that is the point of Gate 2.',
   );
   process.exit(1);
 }
@@ -77,6 +92,49 @@ if (ctx.application.base_url.includes('example.com')) {
   );
 }
 
+/**
+ * Pre-execution verification.
+ *
+ * Every test case here was written before the front-end existed, so nothing
+ * has yet checked it against the application it is about to run on. Running
+ * one whose intent changed after binding, whose starting page is a 404, or
+ * whose role has no session produces a result nobody can trust — so those are
+ * held back and listed first in the execution report, not run and explained.
+ *
+ * `--skip-verify` exists for debugging the gate itself, not for everyday use.
+ */
+let verification: VerifyReport | undefined;
+const held = new Set<string>();
+if (!process.argv.includes('--skip-verify')) {
+  verification = await verify({ feature: featureName });
+  const { md } = writeVerification(verification);
+  if (verification.mode === 'pre-build') {
+    console.error('No real front-end URL is configured, so nothing can execute yet.');
+    console.error('The test cases were verified against the requirement instead:');
+    console.error(`  ${rel(md)}`);
+    console.error('');
+    console.error('When the build lands: set base_url (or BASE_URL), then inspect → bind → verify → run-mission.');
+    process.exit(1);
+  }
+  const envDown = verification.issues.some((i) => !i.test_id && i.severity === 'block');
+  for (const file of files) {
+    const m = readMissionFile(file);
+    const intentRef = m.binding?.intent_ref;
+    if (envDown || verification.held.includes(m.test_id) || (intentRef && verification.held.includes(intentRef))) {
+      held.add(m.test_id);
+    }
+  }
+  console.log(`Verification: ${verification.ready.length} cleared, ${held.size} held back — ${rel(md)}`);
+  for (const id of held) {
+    const mission = files.map(readMissionFile).find((m) => m.test_id === id);
+    const why =
+      verification.issues.find((i) => i.severity === 'block' && (i.test_id === id || i.test_id === mission?.binding?.intent_ref)) ??
+      verification.issues.find((i) => i.severity === 'block' && !i.test_id);
+    console.warn(`  held ${id}: ${why ? `${why.check} — ${why.message}` : 'blocked by verification'}`);
+  }
+  console.log('');
+}
+
 const results: ExecutionResult[] = [];
 const aiByFinding = new Map<string, NonNullable<ExecutionResult['ai_analysis']>>();
 
@@ -89,6 +147,8 @@ for (const file of files) {
     for (const e of errors) console.error(`  ${e}`);
     continue;
   }
+
+  if (held.has(mission.test_id)) continue;
 
   if (!isApproved(mission)) {
     // Belt and braces: the directory is the gate, but a mission could be
@@ -151,9 +211,13 @@ for (const file of files) {
  */
 await closeBrowserSession();
 
-if (results.length > 0) {
-  const report = writeReport(results);
-  console.log(`Report: ${rel(report)}`);
+// Written even when everything was held back: the execution report leads with
+// what did not run, and "all of it" is the most important answer it can give.
+if (results.length > 0 || held.size > 0) {
+  if (results.length > 0) {
+    const report = writeReport(results);
+    console.log(`Report: ${rel(report)}`);
+  }
 
   /**
    * [R5] The execution report is written every run, unasked.
@@ -165,9 +229,17 @@ if (results.length > 0) {
    * is the only kind that keeps getting written, so this is not a flag.
    */
   const defectsBuilt = buildDefects(results);
-  const finalReport = writeFinalReport({ feature: featureName, results });
+  const finalReport = writeFinalReport({ feature: featureName, results, verification });
 
-  console.log(`Execution report: ${finalReport}`);
+  const htmlReport = writeHtmlReport({
+    feature: featureName,
+    results,
+    verification,
+    baseUrl: ctx.application.base_url,
+  });
+
+  console.log(`Execution report: ${htmlReport}   ← open this in a browser`);
+  console.log(`                  ${finalReport}  (Markdown copy)`);
   console.log('');
   if (defectsBuilt.created + defectsBuilt.merged > 0) {
     console.log(
@@ -177,12 +249,65 @@ if (results.length > 0) {
   console.log('  It leads with what did NOT run, then results, then every defect in full');
   console.log('  bug format with reproduction steps and evidence paths.');
   console.log('');
-  console.log('Nothing here is a confirmed defect. Gate 2 is a human reading that report.');
+  console.log('Nothing here is a confirmed defect. Gate 3 is a human reading reports/DEFECT-REVIEW.html.');
+
+  // Phase 5: where the evidence shows a test describes the page slightly
+  // wrong, propose the update now — while the run is fresh in mind.
+  const healing = await buildProposals(featureName);
+  if (healing.proposals.length) {
+    const md = writeHealing(healing);
+    console.log('');
+    console.log(`${healing.proposals.length} test case update(s) proposed from this run's evidence — ${md}`);
+    console.log(`  review, then: npm run heal -- --feature ${featureName ?? '<feature>'} --apply <H-n ...> --by "<you>"`);
+  }
+
+  // Exploration on every run: sweeps, the input probe and the build diff find
+  // what no test case describes. Its own process and browser, because the probe
+  // mutates pages. --no-explore or EXPLORE=off skips it.
+  if (!process.argv.includes('--no-explore') && process.env.EXPLORE !== 'off') {
+    console.log('');
+    console.log('Exploring the feature’s pages (sweeps, input probe, build diff)…');
+    const startedAt = new Date().toISOString();
+    try {
+      execFileSync(
+        process.execPath,
+        [
+          path.join(PATHS.root, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+          path.join(PATHS.root, 'scripts', 'explore.ts'),
+          ...(featureName ? ['--feature', featureName] : []),
+          ...(RUNTIME.headed ? [] : ['--headless']),
+        ],
+        { stdio: ['ignore', 'ignore', 'inherit'] },
+      );
+    } catch {
+      // explore exits non-zero when there is nothing it can explore; the
+      // missions' own results stand either way.
+    }
+    const latest = listExplorations(featureName)
+      .filter((r) => r.generated_at >= startedAt)
+      .sort((a, b) => a.generated_at.localeCompare(b.generated_at))
+      .pop();
+    if (latest) {
+      let created = 0;
+      for (const finding of latest.findings) {
+        const candidate = fromFinding(finding, { url: finding.url, build: latest.build, feature: latest.feature });
+        if (upsert(candidate).isNew) created += 1;
+        writeDefectReport(candidate);
+      }
+      writeDefectReview();
+      console.log(
+        `  ${latest.findings.length} exploration finding(s), ${created} new defect candidate(s) → reports/DEFECT-REVIEW.html` +
+          ` · details: reports/EXPLORATION-REPORT-${featureName ?? 'default'}.md`,
+      );
+    } else {
+      console.log('  Nothing explored (no pages listed in the application context, or no URL).');
+    }
+  }
 }
 
 // Exit code reflects whether a human needs to look, not whether the product is
 // broken — BLOCKED and INCONCLUSIVE both need attention.
-process.exit(results.some((r) => r.status !== 'PASS') ? 1 : 0);
+process.exit(held.size > 0 || results.some((r) => r.status !== 'PASS') ? 1 : 0);
 
 
 /**
@@ -213,6 +338,7 @@ function buildDefects(all: ExecutionResult[]): { created: number; merged: number
         feature: result.feature,
         ai_analysis: result.ai_analysis,
         session: result.session,
+        ...(result.browser ? { browser: result.browser } : {}),
       });
       const { isNew } = upsert(findingCandidate);
       if (isNew) created += 1;
@@ -220,5 +346,6 @@ function buildDefects(all: ExecutionResult[]): { created: number; merged: number
     }
   }
   for (const d of listDefects()) writeDefectReport(d);
+  writeDefectReview();
   return { created, merged };
 }

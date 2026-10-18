@@ -1,30 +1,123 @@
 # ai-qa-poc
 
-A small proof of concept for AI-driven functional smoke testing.
+AI agents that take over most of the manual QA work (requirement analysis,
+test case writing, execution and reporting), with a human approving the output
+at each of three gates.
+
+## Vision
+
+Today the QA team does four things by hand: **requirement analysis → test case
+creation → execution → reporting/defects**. The work usually starts before
+there is a build: all we have is a user story document (module by module) from
+the BA team, or a Jira ticket. The system is designed around that order:
 
 ```text
-Requirement
+── Stage 1 · needs only the story / Jira ticket (no URL) ─────────────────
+User story doc  or  Jira ticket
    ↓
-Thinking Agent      analysis, gaps, risks, draft missions
+Thinker Agent         requirement analysis: gaps, ambiguities, ranked risks,
+                      scenarios, regression impact, coverage decisions
    ↓
-HUMAN — Gate 1      approve, edit, or reject
+HUMAN — Gate 1        Analysis approval: answer the questions, approve the analysis
    ↓
-Test Mission JSON   the contract between the two agents
+── Stage 2 · still no URL ───────────────────────────────────────────────
+Test Case Agent       writes the test cases against the settled requirement
+                      (UI-free intents, in the team's test case format)
    ↓
-Execution Agent     Playwright → Chromium → STAGE
+HUMAN — Gate 2        Test case approval: approve / edit / reject each case
+   ↓                  → test cases are FINAL
+── Stage 3 · when the build / service URL arrives ───────────────────────
+Bind + Verify         map approved cases onto the real UI, re-check traceability
    ↓
-Result + evidence   PASS / FAIL / BLOCKED / INCONCLUSIVE
+Execution Agent       Playwright → Chromium → STAGE, full evidence for every test
    ↓
-Classifier          proposes why it failed
+Classifier            PASS / FAIL / BLOCKED / INCONCLUSIVE, plus proposed cause
    ↓
-HUMAN — Gate 2      confirmed defect / accepted failure / retry
+HUMAN — Gate 3        Result review: real defect / test issue / environment / retry
+   ↓
+Defect review report  every defect laid out as Jira fields → a person posts it to Jira by hand
 ```
 
-The point of the POC is to prove one thing: **an approved, natural-language
-mission can drive a real browser and produce a result a human can trust** —
-without anyone hand-writing a Playwright test first.
+Principles:
+
+* **Humans approve; the AI proposes.** Nothing moves past a gate without a named approver.
+* **Ask before generating.** Gaps go to the requirement owner as questions *before*
+  test cases are written. Writing them first and fixing them later wastes tokens and review time.
+* **No URL is needed until Stage 3.** Analysis and test cases come from the story alone.
+* **A false defect is worse than no defect.** When the evidence is weak the result is
+  INCONCLUSIVE, never FAIL.
+* **Subscription only.** Runtime AI goes through Claude Code headless on the Claude
+  subscription. No API key, no other LLMs.
+
+**New here? Start with [docs/USER-GUIDE.md](docs/USER-GUIDE.md):** the step-by-step
+process and every command, written for the QA team. What is tested, partly
+tested and not yet tested: [docs/COVERAGE-MATRIX.md](docs/COVERAGE-MATRIX.md).
 
 See [../VISION.md](../VISION.md) for the reasoning behind the architecture.
+
+## Status against the vision
+
+| Step | Status | How today |
+|---|---|---|
+| Import story / Jira ticket | ✅ built | `npm run story` (live Jira, JSON/XML export, pasted text), one heading per AC |
+| Thinker Agent analysis (gaps, risks, coverage) | ✅ built | `npm run think -- --feature X --run` runs it headless through Claude Code on the subscription: writes the analysis, adds its questions to the ledger, stops |
+| Gate 1: analysis approval | ✅ built | `npm run approve-analysis`: refuses while questions are open; goes stale (and blocks generation) if the analysis, requirement or any answer changes afterwards |
+| Test case generation | ✅ built | Intents (JSON) are the source of truth; `npm run test-cases` writes `reports/TEST-CASES-<feature>.csv` in the team's format, with no URL needed. Regenerating keeps whatever people typed in the Dev columns, the cross-browser column and QA Comment. After the team's 15 columns come the sign-off columns: Requirement / AC Ref, Priority, Test Type, Automation Status, Approved By/Date, Build / Environment, Defect ID, Evidence. |
+| Gate 2: test case approval | ✅ built | Fill **Gate 2 Decision** (Approve / Reject / Rework) per row in the sheet, then `npm run approve-sheet`. Same checks as `npm run approve-intent` (one case). Rework requests are fed to the next `think --run`, which rewrites exactly those cases; rejected cases are never proposed again. |
+| Bind + verify when the URL arrives | ✅ built | `inspect` → `bind` → `verify` |
+| Execution + evidence | ✅ built | `run-mission`: per-step screenshots, video, API calls, trace, HTML report |
+| Classification + healing proposals | ✅ built | `classify.ts`, `npm run heal` |
+| Gate 3: result review | ✅ built | `reports/DEFECT-REVIEW.html`, rewritten by every run and every `npm run defects` command, groups defects as To review / Confirmed / Posted / Rejected. Decide with `npm run defects -- --confirm / --reject`. |
+| Defect posted to Jira | ✅ by design, by hand | Nothing is sent to Jira automatically. The review page lays out each defect as Jira fields (Summary, Bug, Priority, Environment, Labels, story link, formatted description, attachments) with copy buttons. Post it yourself, then record the key with `--confirm <fp> --ticket <KEY>`. |
+| Web UI | ⚠️ off-policy, outdated | `web/` calls the metered Anthropic API (and OpenAI/Gemini), and predates intents, Gate 1 and the sheet. Use the CLI. |
+| Metrics | ✅ built | `npm run metrics`: Gate 1 state and analysis review minutes; Gate 2 rejected / rework counts and review minutes; Gate 3 false-defect rate |
+
+Gate numbering everywhere: **Gate 1** analysis · **Gate 2** test cases · **Gate 2.5**
+binding review (only when the URL arrives, exceptions only) · **Gate 3** results.
+
+## The flow, command by command (Stages 1–2, no URL)
+
+```bash
+npm run story -- --feature login --prefix LG --jira PROJ-123    # or --from story.txt / export
+npm run think -- --feature login --run                          # ANALYSE: analysis + questions
+npm run clarify -- --feature login --answer Q-1 --text "..." --by "jay.r"
+npm run approve-analysis -- --feature login --by "jay.r" --minutes 10   # GATE 1
+npm run think -- --feature login --run                          # GENERATE: test cases + sheet
+npm run verify -- --feature login
+# open reports/TEST-CASES-login.csv, fill "Gate 2 Decision" per row (Approve / Reject / Rework,
+# reason or requested change in QA Comment), save, then:
+npm run approve-sheet -- --feature login --by "jay.r" --minutes 40 --dry-run   # preview
+npm run approve-sheet -- --feature login --by "jay.r" --minutes 40             # GATE 2
+npm run think -- --feature login --run                          # only if any rows were Rework
+```
+
+Gate 2 rules: a blank row stays waiting, and there is no "approve all". A row
+marked Approve whose test case text was edited in the sheet is not approved
+as-is; it becomes a rework request carrying the edits. Reject needs a reason.
+Refused rows keep their decision so you can fix the cause and run again.
+`npm run approve-intent -- <ID> --by "<name>"` still approves a single case.
+
+`think --run` decides its phase from disk. It does not call the model while
+questions are open or Gate 1 is pending, and it never overwrites an approved
+test case. Any gap it finds while writing test cases is added to the ledger,
+which makes Gate 1 stale again. The model and effort come from
+[agent/thinking/config.yaml](agent/thinking/config.yaml) (`THINKING_MODEL` /
+`THINKING_EFFORT` override). Without `--run`, `npm run think` still writes the
+prompt pack for pasting by hand.
+
+## Stage 3 → Gate 3, after a run
+
+```bash
+npm run run-mission -- --feature login         # writes the execution report AND reports/DEFECT-REVIEW.html
+# open reports/DEFECT-REVIEW.html, read each defect, then:
+npm run defects -- --confirm <fp> --by "jay.r" --note "..."      # or --reject <fp> --note "why"
+# post the confirmed defect to Jira by hand from the page (Copy buttons, attach the evidence files)
+npm run defects -- --confirm <fp> --by "jay.r" --ticket PROJ-123  # record the key; the card moves to Posted
+```
+
+The description is copied as formatted HTML, so it pastes into Jira's editor
+with its headings and lists intact. Classifier and AI notes sit in a separate
+"Reviewer notes" panel and are not part of what you paste.
 
 ---
 
@@ -85,17 +178,37 @@ A mission whose role has no seeded session is reported `BLOCKED` /
 
 ## 5. Where requirements go
 
+### From a Jira story (Phase 4)
+
+```bash
+npm run story -- --feature login --prefix LG --jira PROJ-123           # live (JIRA_* in .env)
+npm run story -- --feature login --from exports/PROJ-123.json          # JSON export
+npm run story -- --feature login --from exports/sprint.xml             # Jira "Export → XML"
+npm run story -- --feature login --from story.txt                      # text copied from the ticket
+```
+
+Creates the feature if needed (no URL required), keeps the raw ticket in
+`input/feature-<name>/tickets/`, and writes `requirement.md` with **one heading
+per acceptance criterion** — Gherkin scenarios, numbered lists and "AC1:" lines
+are all split. That is what lets `npm run verify` say "AC-3 has no test case".
+Re-importing a ticket replaces only its own block; tests approved against the
+old text are flagged for a re-read. A ticket with no acceptance criteria is
+imported as such, and the Thinker Agent asks rather than assumes.
+`--with-comments` adds the ticket discussion as context (not as requirements).
+
+### By hand
+
 ```text
 input/feature/requirement.md      the requirement under test
 input/feature/documentation.md    supporting product docs
 input/feature/existing-tests.md   what is already covered
 ```
 
-Keep these committed. The Thinking Agent runs in a chat window, so its reasoning
+Keep these committed. The Thinker Agent runs in a chat window, so its reasoning
 is not durable — this is what `requirement_ref` points at, and it is what makes
 a result traceable back to a requirement rather than just to a test id.
 
-## 6. Creating missions — the Thinking Agent
+## 6. Creating missions — the Thinker Agent
 
 ### First: look at the application
 
@@ -169,7 +282,42 @@ noticing before you approve, such as a creation test with no `{run_id}` in its
 naming pattern, or a `test_objective` containing "and" (usually two missions
 wearing one coat).
 
-## 7. Approving missions — Gate 1
+### Before the front-end exists — no URL needed
+
+Test cases are normally written before the application is built, so there is
+nothing to inspect. Start the feature without a URL:
+
+```bash
+npm run new-feature -- --name billing --prefix BL      # no --url: pre-build
+```
+
+`npm run think` sees there is no capture and asks for UI-free **intents** only.
+Nothing up to Gate 2 needs a running application.
+
+### Verify the test cases before anything executes
+
+```bash
+npm run verify -- --feature billing
+```
+
+It picks its mode from what exists:
+
+| Mode | When | What it checks |
+|---|---|---|
+| **pre-build** | no real URL yet | every `requirement_ref.quote` really appears in the requirement, docs or a clarification answer (a paraphrase reads the same as an invented rule) · every requirement section is cited by some test · no test rests on an open question or on an answer edited after approval · duplicates, missing critical outcomes, lint |
+| **live** | URL configured | all of the above, plus: environment reachable · a capture exists, from this URL, newer than the approvals · every approved intent has an approved mission · no intent edited since it was bound (`binding.intent_hash`) · starting pages load · roles have a session |
+
+A **block** issue holds that test back; a **warn** does not. Results go to
+`reports/VERIFICATION-<feature>.md`. `npm run run-mission` runs the same checks
+first and skips held tests, and the execution report lists each one with its
+reason under "did not run". With no real URL, `run-mission` stops and points
+at the verification report instead of launching a browser. `--skip-verify`
+bypasses the gate for debugging.
+
+When the build lands: set `base_url` (or `BASE_URL`) → `inspect` → `bind --write`
+→ `verify` → `run-mission`.
+
+## 7. Approving missions — Gate 2
 
 ```bash
 npm run approve -- SM-001 --by "jay.r" --minutes 4
@@ -194,7 +342,7 @@ Approval records a hash of the requirement as it read that day
 ```text
 ! SM-001: The requirement at input/feature/requirement.md has changed since this
   mission was approved (recorded sha256:2f4a…, now sha256:cd67…). The mission may
-  no longer test what it claims. Re-read it at Gate 1 and re-approve.
+  no longer test what it claims. Re-read it at Gate 2 and re-approve.
 ```
 
 This catches the one failure nothing else can: the requirement is edited, the
@@ -217,20 +365,105 @@ draft never executes, however valid it looks.
 Exit code is `1` if any mission is not PASS — including BLOCKED and
 INCONCLUSIVE, because both mean a human still has to look.
 
+### Evidence for every test — passes included
+
+By default (`--evidence full`) every test records, whether it passes or fails:
+
+* for each step: the element it used **outlined in red**, the page after the step, and the URL
+* for each check: expected vs actual, how it matched, and a screenshot of what was checked
+* a screen recording (opened at the point where this test starts, when tests share a browser)
+* the API calls the page made (XHR/fetch), failures highlighted, with secret values masked
+* the Playwright trace
+
+`--evidence minimal` (or `EVIDENCE=minimal`) goes back to failure-only evidence.
+
+### The report to open: `reports/EXECUTION-REPORT-<feature>.html`
+
+Written after every run. It opens with what **did not run**, then a trust summary,
+then one card per test: a "why it failed" panel (expected, actual, proposed cause,
+replay result) or a "how it passed" panel, then the step-by-step flow with
+screenshots, the checks, the video and the API calls. Filter by status or
+"needs review", search by id. The Markdown copy is still written next to it.
+
+Every test carries a **trust** label:
+
+| Label | Meaning |
+|---|---|
+| `verified` | every element and every check matched exactly |
+| `review` | a fuzzy, synonym or AI match was involved — the card names each such step |
+| `weak` | BLOCKED / INCONCLUSIVE, or evidence missing |
+
+### Smarter element matching
+
+Test cases are written before the UI exists, so their wording drifts from the
+shipped page. When the exact descriptor finds nothing, the executor tries, in order:
+
+1. **fuzzy** — same words ignoring case, spacing and punctuation (`Sign in` = `SIGN IN →`)
+2. **synonym** — known equivalents (`Log in` = `Sign in`, `Email` = `E-mail address`, `Cart` = `Basket`); see `SYNONYM_GROUPS` in [src/smart-locator.ts](src/smart-locator.ts)
+3. **AI** — Claude picks from the controls actually on the page, must give a reason, and a low-confidence answer is refused
+
+Tiers 1–2 accept only a single visible match. The AI tier is used for **actions
+only** — a check never passes because a model picked the element it examined.
+Text checks accept exact, then normalised (case/spacing/punctuation), then — only
+with high confidence — an AI judgement that the wording means the same thing
+("Order placed successfully!" for "Your order has been placed"); a different
+field, number or outcome is never accepted. Every non-exact match is recorded on
+the step and makes the test `review`.
+
+### AI without an API key
+
+Execution-time AI (element matching, text meaning, failure triage) runs through
+**Claude Code in headless mode on your Claude subscription** whenever Claude
+Code is installed — no API key, no separate bill. Sign in once with `claude`.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AI_PROVIDER` | auto | `claude-cli` (subscription), `api` (needs `ANTHROPIC_API_KEY`, metered), or `off`. Auto prefers the subscription. |
+| `EXECUTION_AI_MODEL` | route default (Opus) | e.g. `claude-opus-5-5` |
+| `EXECUTION_AI_EFFORT` | `low` | effort for the subscription route; each call takes a few seconds |
+| `SEMANTIC_ASSERTIONS` | on | `off` disables AI judging of text meaning |
+| `CLAUDE_CLI` | found automatically | path to the Claude Code binary if it is somewhere unusual |
+
+AI is only called when deterministic matching fails, so a run where the page
+matches the test cases makes no AI calls at all.
+
+### Keeping test cases in step with the app (Phase 5)
+
+Test cases written before the UI existed will describe some of it slightly
+wrong. After each run, `run-mission` proposes updates from the evidence and
+writes `reports/HEALING-<feature>.md`; `npm run heal -- --feature <name>` does
+the same on demand.
+
+| Proposal | When | Applying it |
+|---|---|---|
+| **locator** | a step or check only worked through fuzzy/synonym/AI matching | updates the test to the element's real name, so the next run is exact and `verified` |
+| **expectation** | a check failed (or passed only on meaning) because the text differs | needs `--confirmed-with "<requirement owner>"`; **refused** when the requirement itself states the expected text — that is a defect |
+| **rebind** | the intent was edited after the test was generated | shows the `bind` command |
+| **reapprove** | the requirement changed under an approved test | shows the `approve` command |
+
+```bash
+npm run heal -- --feature login --apply H-1 H-2 --by "jay.r"
+npm run heal -- --feature login --apply all-locators --by "jay.r"
+npm run heal -- --feature login --apply H-5 --by "jay.r" --confirmed-with "PO: Priya"
+```
+
+Nothing changes until you apply a proposal by id. Applying re-stamps the
+mission's approval with your name and adds a `change_log` entry (what, why, on
+which screenshot). A proposal is refused if the mission changed since it was made.
+
 ### Optional execution-time AI review
 
 The browser remains deterministic. When enabled, the AI reviews a completed
 non-PASS run or incidental finding and writes `ai-analysis.json` beside the
 mission evidence. It proposes likely cause and bounded follow-up checks only;
-the result status, classifier, and human Gate 2 decision remain authoritative.
+the result status, classifier, and human Gate 3 decision remain authoritative.
 
 ```powershell
 $env:EXECUTION_AI="true"
-$env:ANTHROPIC_API_KEY="..."
 npm run run-mission -- --feature ecommerce
 ```
 
-Use `EXECUTION_AI_MODEL` to override the default model. If the API is disabled,
+Runs on the Claude subscription route above; no key needed. If the API is disabled,
 unavailable, or returns invalid JSON, the mission still completes normally and
 records the AI failure as a note.
 
@@ -293,7 +526,7 @@ Reports land in `reports/` and lead with what is *not* trustworthy — BLOCKED a
 INCONCLUSIVE before failures — then show each failure's expected/actual,
 evidence paths, and the classifier's reasoning.
 
-Nothing files a defect. Gate 2 is a human reading the report.
+Nothing files a defect. Gate 3 is a human reading reports/DEFECT-REVIEW.html.
 
 ---
 
@@ -314,7 +547,7 @@ test*; classification says *whose fault it was*:
 
 The executor never classifies its own failure — an agent that just failed is the
 least reliable narrator of why. [src/classify.ts](src/classify.ts) proposes;
-the human at Gate 2 decides.
+the human at Gate 3 decides.
 
 ### Rules the executor will not break
 
@@ -342,27 +575,22 @@ natural language. Playwright's own CLI is used for what it is best at:
 `playwright install`, `playwright open --save-storage`, and
 `playwright show-trace`.
 
-**2. There is no LLM integration yet, by design.** So "semantic discovery" here
-is deterministic: the mission's `role`/`name`/`label` descriptors are matched
-against the live accessibility tree, with the locator cache tried first. That is
-genuinely semantic — it is meaning, not CSS — but it is not a model reading the
-page.
-
-`resolveTarget()` in [src/discovery.ts](src/discovery.ts) is exactly where a
-model-driven resolver plugs in, and `describeCandidates()` already produces the
-accessibility context such a resolver would need. Nothing above that boundary
-changes when it arrives.
+**2. AI is a fallback, not the driver.** Element resolution is deterministic
+first: the mission's `role`/`name`/`label` descriptors are matched against the
+live accessibility tree, with the locator cache tried first. Claude is called
+only when that fails (see "Smarter element matching"), and only for actions,
+never for checks.
 
 ---
 
-## Deliberately not built
+## Deliberately not built (yet)
 
-Full regression · all browsers · mobile · performance · accessibility · CI/CD ·
-automatic defect creation · self-healing · regression selection · vector
-DB / RAG · multi-agent orchestration · more than one project.
+Full regression · all browsers · mobile · performance · CI/CD · regression
+selection · vector DB / RAG · more than one project · unattended defect filing
+(a human always confirms at Gate 3).
 
-POC-1 proves the core loop. Everything above multiplies before the loop is
-known to work.
+Healing exists, but only as *proposals* that a human applies. Nothing rewrites
+a test on its own.
 
 ---
 
@@ -370,7 +598,7 @@ known to work.
 
 ```text
 agent/
-  thinking/SYSTEM_PROMPT.md      what the Thinking Agent is held to
+  thinking/SYSTEM_PROMPT.md      what the Thinker Agent is held to
   thinking/config.yaml           model (claude-opus-5) and effort
   thinking/ANALYSIS_TEMPLATE.md  the shape of the committed analysis
   execution/EXECUTION_PROMPT.md  the executor's rules (and src/'s spec)
@@ -382,9 +610,9 @@ knowledge/
   application-context.yaml       modules, roles, global testing rules
   locator-cache.json             written by successful runs, not by hand
 missions/draft/                  proposed — never executed
-missions/approved/               Gate 1 passed — the only thing that runs
+missions/approved/               Gate 2 passed — the only thing that runs
 runs/                            evidence, one directory per run
-reports/                         Markdown summaries for Gate 2
+reports/                         Markdown summaries for Gate 3
 schemas/                         the two contracts, authoritative
 scripts/                         new-feature · inspect · think · import · validate · approve · run-mission · coverage · report
 src/                             the Execution Agent

@@ -4,7 +4,7 @@ import { PATHS } from './config.js';
 import type { ExecutionResult, Status } from './types.js';
 
 /**
- * The Markdown summary a human reads at Gate 2.
+ * The Markdown summary a human reads at Gate 3.
  *
  * It is written for someone deciding whether to trust the run, so it leads with
  * what is not trustworthy: BLOCKED and INCONCLUSIVE come before failures, and
@@ -147,7 +147,7 @@ export function buildReport(results: ExecutionResult[]): string {
         for (const fact of r.ai_analysis.evidence ?? []) lines.push(`* Evidence: ${fact}`);
         for (const check of r.ai_analysis.follow_up ?? []) lines.push(`* Follow-up: ${check}`);
         lines.push('');
-        lines.push('_AI analysis is advisory. The deterministic result and human Gate 2 decision remain authoritative._');
+        lines.push('_AI analysis is advisory. The deterministic result and human Gate 3 decision remain authoritative._');
         lines.push('');
       }
     }
@@ -234,7 +234,7 @@ export function buildReport(results: ExecutionResult[]): string {
     lines.push('');
   }
 
-  lines.push('## Gate 2');
+  lines.push('## Gate 3');
   lines.push('');
   lines.push('Nothing in this report is a confirmed defect, and no defect has been filed.');
   lines.push('');

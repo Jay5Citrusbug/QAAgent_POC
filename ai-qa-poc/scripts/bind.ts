@@ -148,7 +148,7 @@ if (needsReview.length) {
   lines.push('## Bound, but needs review', '');
   lines.push(
     'A mission exists for each of these, but the binder had to leave something open.',
-    'These are the only bindings Gate 1.5 looks at — reviewing the clean ones too',
+    'These are the only bindings Gate 2.5 looks at — reviewing the clean ones too',
     'would be a rubber stamp.',
     '',
   );
@@ -224,8 +224,8 @@ console.log(`Reconciliation: ${rel(reportFile)}`);
 /**
  * The same reconciliation as data.
  *
- * The markdown is for a human at Gate 1.5. The binding exception rate is one
- * of the numbers that decides whether Gate 1.5 earns its place at all (§15),
+ * The markdown is for a human at Gate 2.5. The binding exception rate is one
+ * of the numbers that decides whether Gate 2.5 earns its place at all (§15),
  * and a number that only exists inside prose cannot be trended across six
  * requirements.
  */
@@ -265,7 +265,7 @@ if (has('write')) {
 
 if (needsReview.length || unbindable.length) {
   console.log('');
-  console.log('Gate 1.5 reviews the exceptions only:');
+  console.log('Gate 2.5 reviews the exceptions only:');
   console.log(`  npm run approve -- <TEST_ID> --by "<your name>" --reviewed`);
   console.log('');
   console.log('Read the reconciliation first — it lists what the page actually offers for');

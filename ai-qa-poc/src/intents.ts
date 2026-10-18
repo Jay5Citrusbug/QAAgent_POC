@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
@@ -53,6 +54,23 @@ export function listIntents(dir: string): string[] {
 }
 
 /**
+ * Does "and" join two actions or outcomes ("signs in and sees the dashboard"),
+ * rather than two nouns ("email and password", "mobile and tablet sizes")?
+ *
+ * Only the first is two tests wearing one coat. Flagging every "and" fired on
+ * most generated titles, and a warning that fires on everything is read by
+ * nobody — so it looks for a verb in the few words after the "and".
+ */
+const CLAUSE_VERBS = new Set(
+  'is are was be shows show shown displays displayed sees see receives gets returns redirects navigates lands appears remains stays updates persists saves sends creates deletes adds removes logs signs submits clears resets keeps can cannot must should will does'.split(' '),
+);
+
+export function joinsTwoClauses(objective: string): boolean {
+  const words = objective.toLowerCase().replace(/[^a-z\s'-]/g, ' ').split(/\s+/).filter(Boolean);
+  return words.some((w, at) => w === 'and' && words.slice(at + 1, at + 5).some((n) => CLAUSE_VERBS.has(n)));
+}
+
+/**
  * Words that mean the author was thinking about a screen rather than about the
  * product. The schema already makes a `target` unrepresentable, but nothing
  * stops someone writing "click the blue Sign In button at the top right" into
@@ -91,7 +109,7 @@ const UI_VOCABULARY = [
 const REFUSAL_OBSERVABLES = new Set(['message_shown', 'access_denied', 'element_absent', 'state_change']);
 
 /**
- * Semantic checks the schema cannot express. Warnings, for the human at Gate 1.
+ * Semantic checks the schema cannot express. Warnings, for the human at Gate 2.
  */
 export function lintIntent(i: TestIntent, ledger?: Ledger): string[] {
   const warnings: string[] = [];
@@ -147,7 +165,7 @@ export function lintIntent(i: TestIntent, ledger?: Ledger): string[] {
     if (!d.provisioning || d.provisioning === 'unknown') {
       warnings.push(
         `test_data "${d.name}": provisioning is unknown, so this intent has no confirmed way to run. ` +
-          'Decide this before Gate 1 — an approved test that cannot be executed reads as the system failing.',
+          'Decide this before Gate 2 — an approved test that cannot be executed reads as the system failing.',
       );
     }
     if (d.disposable && d.provisioning === 'seeded') {
@@ -165,8 +183,8 @@ export function lintIntent(i: TestIntent, ledger?: Ledger): string[] {
     }
   }
 
-  if (/\band\b/i.test(i.test_objective)) {
-    warnings.push('test_objective contains "and" — this may really be two intents.');
+  if (joinsTwoClauses(i.test_objective)) {
+    warnings.push('test_objective joins two actions or outcomes with "and" — this may really be two intents.');
   }
 
   if (!i.coverage?.category) {
@@ -193,7 +211,7 @@ export function lintIntent(i: TestIntent, ledger?: Ledger): string[] {
 }
 
 /**
- * Gate 1's hard condition, separate from the lint warnings above.
+ * Gate 2's hard condition, separate from the lint warnings above.
  *
  * Everything lintIntent returns is a judgement call for a human. This is not:
  * an intent resting on an unanswered question asserts behaviour nobody has
@@ -206,6 +224,31 @@ export function approvalBlockers(i: TestIntent, ledger: Ledger): string[] {
       ? `${d.id} is referenced by this intent but does not exist in ${path.basename(ledger.file)}.`
       : `${d.id} is still open: "${d.question.question}"`,
   );
+}
+
+/**
+ * Hash of what an intent asserts, ignoring its approval stamp.
+ *
+ * Recorded on the mission at bind time. If the intent is edited afterwards the
+ * mission is still testing the old version — schema-valid, approved, and wrong.
+ */
+export function hashIntent(intent: TestIntent): string {
+  const { approval: _approval, ...rest } = intent;
+  return `sha256:${crypto.createHash('sha256').update(stable(rest), 'utf8').digest('hex').slice(0, 32)}`;
+}
+
+/** Key-order-independent JSON, so reformatting a file is not mistaken for an edit. */
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    return `{${Object.keys(obj)
+      .sort()
+      .filter((k) => obj[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${stable(obj[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 export type { TestIntent };

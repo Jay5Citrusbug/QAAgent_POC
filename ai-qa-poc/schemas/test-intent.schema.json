@@ -41,7 +41,7 @@
     "depends_on_clarifications": {
       "type": "array",
       "items": { "type": "string", "pattern": "^Q-[0-9]+$" },
-      "description": "[R3] Ids from input/feature*/clarifications.yaml that this intent's expected behaviour rests on. THE ENFORCEMENT HOOK: while any listed question is still 'open', Gate 1 refuses this intent. That is how 'never invent expected behaviour' stops being advice. A question answered as 'assumed' passes, but stamps assumption: true."
+      "description": "[R3] Ids from input/feature*/clarifications.yaml that this intent's expected behaviour rests on. THE ENFORCEMENT HOOK: while any listed question is still 'open', Gate 2 refuses this intent. That is how 'never invent expected behaviour' stops being advice. A question answered as 'assumed' passes, but stamps assumption: true."
     },
 
     "feature": { "type": "string" },
@@ -49,8 +49,25 @@
       "type": "string",
       "description": "Optional at intent time. The module may not exist in knowledge/application-context.yaml yet, because it may not be built yet. The binding phase fills it in."
     },
+    "layer": {
+      "type": "string",
+      "enum": ["FE", "BE", "FE+BE"],
+      "description": "The test case sheet's 'FE/BE?' column. FE: observed through the UI. BE: observed below it (API, job, data). FE+BE: needs both. Omitted, it is derived from coverage (api/integration → BE, otherwise FE)."
+    },
     "capability": { "type": "string", "description": "Dotted capability path, e.g. Auth.SignIn. A statement of product intent, not of UI." },
     "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+
+    "browser": {
+      "type": "string",
+      "enum": ["chromium", "firefox", "webkit"],
+      "description": "compatibility: the engine this test is about (webkit = Safari). Omit for Chromium. Usually better: run the whole suite with --browser instead of one intent per engine."
+    },
+
+    "viewport": {
+      "type": "string",
+      "enum": ["mobile", "tablet", "desktop"],
+      "description": "responsive: the screen size this test is about. Omit for desktop. One size per intent; a layout that must work on all three is three intents."
+    },
 
     "actor": {
       "type": "string",
@@ -72,6 +89,18 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "State that must hold before step 1, in business language: 'the account exists and is locked'. An unmet precondition is BLOCKED, never FAIL."
+    },
+
+    "fault": {
+      "type": "object",
+      "description": "error_handling: a backend failure this test simulates before the actor acts. Bound to a fail_requests step. The outcomes then say what the user must be told, and that nothing was lost or double-submitted.",
+      "additionalProperties": false,
+      "required": ["kind", "description"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["server_error", "not_found", "timeout", "offline", "slow"] },
+        "endpoint": { "type": "string", "description": "\"POST /api/cart\" when the requirement or documentation names it. Never invent one: without it a person picks the call at Gate 2.5." },
+        "description": { "type": "string", "description": "The failure in product terms: \"saving the cart fails on the server\"." }
+      }
     },
 
     "test_data": {
@@ -119,7 +148,9 @@
             "api",
             "integration",
             "compatibility",
-            "responsive"
+            "responsive",
+            "accessibility",
+            "performance"
           ]
         },
         "secondary_categories": { "type": "array", "items": { "type": "string" } },
@@ -147,7 +178,34 @@
             "description": "One thing the actor does: 'submit credentials for an account that is locked'. If you cannot write it without naming a button, it is a binding detail and belongs to the binding phase."
           },
           "data_ref": { "type": "string", "description": "Name from test_data." },
-          "note": { "type": "string", "description": "Anything the binding phase or a human reviewer needs to know about this step." }
+          "note": { "type": "string", "description": "Anything the binding phase or a human reviewer needs to know about this step." },
+          "simulate": {
+            "type": "string",
+            "enum": ["session_expired"],
+            "description": "Something that happens TO the user at this point: session_expired ends the session as a timeout would. The next steps and outcomes say what the application must do about it."
+          },
+          "api": {
+            "type": "object",
+            "description": "A step done through the API instead of the UI: setting data up, or reading a record back to prove it was stored. Use only when the requirement or documentation names the endpoint.",
+            "additionalProperties": false,
+            "required": ["endpoint"],
+            "properties": {
+              "endpoint": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE) /", "description": "\"POST /api/orders\". {name} path parameters are filled from values saved by earlier steps." },
+              "body": { "type": "object", "description": "JSON body. Strings support {run_id} and {saved.<name>}." },
+              "save": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["json_path", "as"],
+                  "properties": {
+                    "json_path": { "type": "string" },
+                    "as": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -164,7 +222,7 @@
           "id": { "type": "string", "pattern": "^O[0-9]+$" },
           "statement": {
             "type": "string",
-            "description": "The human sentence. This is what the reviewer - possibly the BA who wrote the story - reads at Gate 1."
+            "description": "The human sentence. This is what the reviewer - possibly the BA who wrote the story - reads at Gate 2."
           },
           "observable": {
             "type": "string",
@@ -176,7 +234,9 @@
               "element_absent",
               "value_equals",
               "data_persisted",
-              "access_denied"
+              "access_denied",
+              "api_response",
+              "ui_matches_api"
             ],
             "description": "What KIND of evidence would settle this. The one concession to the executing side: enough for the binding phase to know which family of check to bind, while still saying nothing about the UI."
           },
@@ -202,7 +262,7 @@
 
     "approval": {
       "type": "object",
-      "description": "Gate 1, made machine-checkable. The binding phase refuses any intent outside intents/approved/ or with this block absent.",
+      "description": "Gate 2, made machine-checkable. The binding phase refuses any intent outside intents/approved/ or with this block absent.",
       "additionalProperties": false,
       "required": ["approved_by", "approved_at"],
       "properties": {

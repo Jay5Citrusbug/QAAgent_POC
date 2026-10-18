@@ -1,4 +1,4 @@
-# Running the Thinking Agent without a separate bill
+# Running the Thinker Agent without a separate bill
 
 The web UI in `web/` calls the Anthropic API directly, which is metered and
 billed per token **on top of** any Claude subscription you already hold. If you
@@ -12,7 +12,7 @@ JSON, validated the same way. Nothing downstream knows or cares which was used.
 
 ## Route A — Claude Code (no copy-paste at all)
 
-If you are already working in Claude Code, it can act as the Thinking Agent
+If you are already working in Claude Code, it can act as the Thinker Agent
 directly: it reads the prompt pack from disk and writes the analysis and
 missions back to disk itself.
 
@@ -23,7 +23,7 @@ npm run think   -- --feature <name> --prefix XX
 
 Then ask Claude Code, in plain words:
 
-> Act as the Thinking Agent. Read
+> Act as the Thinker Agent. Read
 > `thinking/prompts/prompt-<name>-<date>.md` and follow it exactly. Save the
 > analysis to `thinking/analysis/<name>-<date>.md` and each mission to
 > `missions/draft/<TEST_ID>.json`.
@@ -41,19 +41,20 @@ reply, and the agent can read the schema and the observed-state capture
 straight from the repository.
 
 **What to watch:** the same rules still apply — it must not invent behaviour
-the requirement never stated, and every mission still goes through Gate 1. Ask
+the requirement never stated, and every mission still goes through Gate 2. Ask
 it to follow the pack rather than improvising, and read what it produces.
 
 ---
 
-## Route B — claude.ai in the browser
+## Route B — VS Code Chat, Antigravity, or any chat seat
 
 ```powershell
 npm run think -- --feature <name> --prefix XX --copy
 ```
 
-Paste into a Claude conversation. Save the **entire reply** to a file — prose,
-analysis and JSON together, no tidying — then:
+Paste the prompt pack into the chat model you currently use in VS Code,
+Antigravity, Claude, Gemini, or GPT. Save the **entire reply** to a file —
+prose, analysis and JSON together, no tidying — then:
 
 ```powershell
 npm run import -- --from reply.md --feature <name>
@@ -69,6 +70,11 @@ Check first if you like:
 ```powershell
 npm run import -- --from reply.md --feature <name> --dry-run
 ```
+
+This is the route that reuses an editor/chat subscription. The web UI cannot
+read or invoke the model selected in a VS Code or Antigravity chat session;
+those sessions are not exposed as a local API. Seamless in-editor invocation
+would require a VS Code extension bridge using the editor's language-model API.
 
 ---
 
@@ -88,7 +94,7 @@ nothing the two routes above do not already give you.
 
 ## The free routes still enforce every gate **[R5]**
 
-This matters independently of billing. `/api/approve` (the browser's Gate 1.5)
+This matters independently of billing. `/api/approve` (the browser's Gate 2.5)
 used to be its own copy of the approval logic — schema check only, nothing for
 binding exceptions. It now delegates to `scripts/approve.ts` instead of
 re-implementing it, so a mission the terminal refuses is refused in the
@@ -104,10 +110,13 @@ The cost question only touches **who runs the model**. Everything else is
 identical either way:
 
 * the same system prompt, schema, coverage checklist and observed-state capture
-* the same Gate 1 approval, with the same requirement hash pinned
+* the same Gate 2 approval, with the same requirement hash pinned
 * the same execution agent, which never used a model at all and costs nothing
   per run beyond the browser
 
-Execution — the part that runs every build — has always been free. The model is
+Execution — the part that runs every build — is free too. Its optional AI
+(element matching when wording drifts, judging whether a message means the same,
+failure triage) runs through Claude Code headless (`claude -p`) on the same
+subscription, with no API key; see "AI without an API key" in the README. The model is
 only involved when a requirement is analysed, which happens once per feature,
 not once per run.

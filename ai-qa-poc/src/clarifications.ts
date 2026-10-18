@@ -113,7 +113,7 @@ export function resolveDependencies(ids: string[] | undefined, ledger: Ledger): 
   });
 }
 
-/** The ones that must be resolved before Gate 1 can pass. */
+/** The ones that must be resolved before Gate 2 can pass. */
 export function blocking(deps: DependencyState[]): DependencyState[] {
   return deps.filter((d) => d.state === 'open' || d.state === 'missing');
 }
@@ -181,7 +181,7 @@ export function renderLedger(ledger: Ledger): string | undefined {
  *
  * The agent used to do both halves in one pass: analyse, raise the gaps, and
  * write every intent anyway with `depends_on_clarifications` declared. The
- * file-level gate still caught those intents at Gate 1, so nothing unsafe
+ * file-level gate still caught those intents at Gate 2, so nothing unsafe
  * reached execution — but the intents resting on an unanswered question had to
  * be rewritten once the answer arrived, and regenerating a whole set to correct
  * three of them is pure waste. Worse, it puts the question in front of a human

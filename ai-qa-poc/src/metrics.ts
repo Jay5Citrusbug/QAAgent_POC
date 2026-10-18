@@ -3,6 +3,8 @@ import path from 'node:path';
 import { PATHS } from './config.js';
 import { loadLedger } from './clarifications.js';
 import { approvalBlockers, listIntents, readIntentFile } from './intents.js';
+import { analysisGate } from './analysis-gate.js';
+import { loadFeedback } from './intent-approval.js';
 import { listDefects } from './defect.js';
 import { readMissionFile } from './validate.js';
 import type { ExecutionResult, TestIntent, TestMission } from './types.js';
@@ -36,13 +38,21 @@ export interface FeatureMetrics {
   questionsAnswered: number;
   questionsAssumed: number;
 
-  // Gate 1.
+  // Gate 1 — the analysis itself, approved before any test case is written.
+  gate1State: 'approved' | 'stale' | 'missing';
+  gate1Minutes: number[];
+
+  // Gate 2.
   intentsApproved: number;
   intentsBlocked: number;
   intentsRestingOnAssumption: number;
-  gate1Minutes: number[];
+  /** Rejected at Gate 2: cases the agent should not have proposed. */
+  intentsRejected: number;
+  /** Rework requests ever raised: cases the agent got wrong first time. */
+  reworkRequests: number;
+  gate2Minutes: number[];
 
-  // Gate 1.5 — phase 2a.
+  // Gate 2.5 — phase 2a.
   bindingRun: boolean;
   boundClean: number;
   boundNeedsReview: number;
@@ -53,12 +63,12 @@ export interface FeatureMetrics {
   // Execution.
   runs: Record<'PASS' | 'FAIL' | 'BLOCKED' | 'INCONCLUSIVE', number>;
 
-  // Gate 2 — and the §13a disagreement rate.
+  // Gate 3 — and the §13a disagreement rate.
   defectsTotal: number;
   defectsConfirmed: number;
   defectsRejected: number;
   defectsPending: number;
-  gate2Minutes: number[];
+  gate3Minutes: number[];
   agreement: Agreement;
 }
 
@@ -229,6 +239,7 @@ export function agreementFrom(defects: ReturnType<typeof listDefects>): Agreemen
 export function buildMetrics(onlyFeature?: string): FeatureMetrics[] {
   const intents = listIntents(PATHS.intentsApproved).map(readIntentFile);
   const draftIntents = listIntents(PATHS.intentsDraft).map(readIntentFile);
+  const rejectedIntents = listIntents(PATHS.intentsRejected).map(readIntentFile);
   const missions = collectMissions();
   const results = collectResults();
   const defects = listDefects();
@@ -256,6 +267,7 @@ export function buildMetrics(onlyFeature?: string): FeatureMetrics[] {
     const myMissions = missions.filter((m) => featureOfMission(m) === feature);
 
     const recon = latestReconciliation(feature);
+    const gate1 = feature === UNASSIGNED ? undefined : analysisGate(feature);
 
     const exceptionsByKind: Record<string, number> = {};
     for (const m of myMissions) {
@@ -288,10 +300,15 @@ export function buildMetrics(onlyFeature?: string): FeatureMetrics[] {
       questionsAnswered: ledger.questions.filter((q) => q.status === 'answered').length,
       questionsAssumed: ledger.questions.filter((q) => q.status === 'assumed').length,
 
+      gate1State: gate1?.state ?? 'missing',
+      gate1Minutes: gate1 && gate1.state !== 'missing' && typeof gate1.approval.review_minutes === 'number' ? [gate1.approval.review_minutes] : [],
+
       intentsApproved: mine.length,
       intentsBlocked: myDrafts.filter((i) => approvalBlockers(i, ledger).length > 0).length,
       intentsRestingOnAssumption: mine.filter((i) => i.assumption).length,
-      gate1Minutes: mine
+      intentsRejected: rejectedIntents.filter((i) => featureOfIntent(i) === feature).length,
+      reworkRequests: feature === UNASSIGNED ? 0 : loadFeedback(feature).length,
+      gate2Minutes: mine
         .map((i) => i.approval?.review_minutes)
         .filter((n): n is number => typeof n === 'number'),
 
@@ -308,7 +325,7 @@ export function buildMetrics(onlyFeature?: string): FeatureMetrics[] {
       defectsConfirmed: myDefects.filter((d) => d.status === 'confirmed').length,
       defectsRejected: myDefects.filter((d) => d.status === 'rejected').length,
       defectsPending: myDefects.filter((d) => d.status === 'candidate').length,
-      gate2Minutes: myDefects
+      gate3Minutes: myDefects
         .map((d) => d.human_review?.review_minutes)
         .filter((n): n is number => typeof n === 'number'),
       agreement: agreementFrom(myDefects),
@@ -350,36 +367,39 @@ export function renderMetrics(all: FeatureMetrics[]): string {
   L.push('Gaps found at story time. The cheapest defect this system produces: one closed');
   L.push('here costs a conversation, the same one at UAT costs a release.');
   L.push('');
-  L.push('| Feature | Questions | Open | Answered | Assumed |');
-  L.push('|---|---|---|---|---|');
+  L.push('| Feature | Questions | Open | Answered | Assumed | Gate 1 | Analysis review min |');
+  L.push('|---|---|---|---|---|---|---|');
   for (const m of all) {
     L.push(
-      `| ${m.feature} | ${m.questionsTotal || DASH} | ${m.questionsOpen} | ${m.questionsAnswered} | ${m.questionsAssumed} |`,
+      `| ${m.feature} | ${m.questionsTotal || DASH} | ${m.questionsOpen} | ${m.questionsAnswered} | ${m.questionsAssumed} | ${m.gate1State} | ${mean(m.gate1Minutes)} |`,
     );
   }
   L.push('');
 
-  // --- Gate 1 ---------------------------------------------------------------
-  L.push('## Gate 1 — test design');
+  // --- Gate 2 ---------------------------------------------------------------
+  L.push('## Gate 2 — test design');
   L.push('');
   L.push('Review minutes is the number most likely to kill this quietly. It must **fall**');
   L.push('across features; if the twentieth intent costs what the first did, the system is');
   L.push('generating work rather than absorbing it.');
   L.push('');
-  L.push('| Feature | Approved | Blocked on questions | On an assumption | Avg review min |');
-  L.push('|---|---|---|---|---|');
+  L.push('Rejected and rework count what the reviewer had to correct. Both should fall as');
+  L.push('the agent learns a product; if they do not, review is doing the design work.');
+  L.push('');
+  L.push('| Feature | Approved | Blocked on questions | On an assumption | Rejected | Rework requests | Avg review min |');
+  L.push('|---|---|---|---|---|---|---|');
   for (const m of all) {
     L.push(
-      `| ${m.feature} | ${m.intentsApproved} | ${m.intentsBlocked} | ${m.intentsRestingOnAssumption} | ${mean(m.gate1Minutes)} |`,
+      `| ${m.feature} | ${m.intentsApproved} | ${m.intentsBlocked} | ${m.intentsRestingOnAssumption} | ${m.intentsRejected} | ${m.reworkRequests} | ${mean(m.gate2Minutes)} |`,
     );
   }
   L.push('');
 
-  // --- Gate 1.5 -------------------------------------------------------------
-  L.push('## Gate 1.5 — binding');
+  // --- Gate 2.5 -------------------------------------------------------------
+  L.push('## Gate 2.5 — binding');
   L.push('');
   L.push('The exception rate decides whether this gate earns its place. Near 0% and it is');
-  L.push('theatre that should merge into Gate 1; near 100% and the binder is not pulling');
+  L.push('theatre that should merge into Gate 2; near 100% and the binder is not pulling');
   L.push('its weight. The number decides, not an opinion.');
   L.push('');
   L.push('| Feature | Clean | Needs review | Could not bind | Exception rate | Uncovered controls |');
@@ -428,8 +448,8 @@ export function renderMetrics(all: FeatureMetrics[]): string {
   L.push('system never declined to guess, and it is supposed to.');
   L.push('');
 
-  // --- Gate 2 and agreement -------------------------------------------------
-  L.push('## Gate 2 — defects, and the classifier');
+  // --- Gate 3 and agreement -------------------------------------------------
+  L.push('## Gate 3 — defects, and the classifier');
   L.push('');
   L.push('| Feature | Reports | Confirmed | Rejected | Pending | False-defect rate | Avg review min |');
   L.push('|---|---|---|---|---|---|---|');
@@ -437,7 +457,7 @@ export function renderMetrics(all: FeatureMetrics[]): string {
     const judged = m.defectsConfirmed + m.defectsRejected;
     L.push(
       `| ${m.feature} | ${m.defectsTotal} | ${m.defectsConfirmed} | ${m.defectsRejected} | ` +
-        `${m.defectsPending} | ${judged ? pct(m.defectsRejected, judged) : DASH} | ${mean(m.gate2Minutes)} |`,
+        `${m.defectsPending} | ${judged ? pct(m.defectsRejected, judged) : DASH} | ${mean(m.gate3Minutes)} |`,
     );
   }
   L.push('');
@@ -471,7 +491,7 @@ export function renderMetrics(all: FeatureMetrics[]): string {
 
   const totalJudged = all.reduce((n, m) => n + m.agreement.judged, 0);
   if (totalJudged === 0) {
-    L.push('Nothing has been judged at Gate 2 yet, so there is no agreement rate. That is the');
+    L.push('Nothing has been judged at Gate 3 yet, so there is no agreement rate. That is the');
     L.push('honest state, not a zero — confirm or reject some candidates and it fills in:');
     L.push('');
     L.push('```text');

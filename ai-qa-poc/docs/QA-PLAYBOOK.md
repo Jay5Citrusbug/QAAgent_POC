@@ -46,7 +46,7 @@ npm run new-feature        — scaffold the folders for this feature
         ↓
 npm run inspect             — look at the real page, if it exists yet
         ↓
-npm run think                — build the prompt pack for the Thinking Agent
+npm run think                — build the prompt pack for the Thinker Agent
         ↓  (paste into Claude, save what comes back)
 npm run clarify               — answer the questions it raised
         ↓
@@ -92,7 +92,7 @@ npm run new-feature -- --name login --url https://stage.example.com --prefix LG
 - `--name` — a short lowercase name for this feature (letters, digits,
   hyphens). This becomes the folder name and shows up in every command after.
 - `--url` — the real environment this feature lives on. Required — without it
-  the Thinking Agent has nothing to look at and will invent UI that doesn't
+  the Thinker Agent has nothing to look at and will invent UI that doesn't
   exist.
 - `--prefix` — 2–4 letters used for every test id in this feature (`LG-001`,
   `LG-002`, ...). **Pick one your lead confirms is not already used** by
@@ -112,7 +112,7 @@ knowledge/application-context-login.yaml
 Open `input/feature-login/requirement.md` and replace the placeholder with
 the actual requirement — the ticket text, the acceptance criteria, whatever
 you were handed. Be as complete as you have; anything you leave out becomes a
-gap the Thinking Agent has to ask you about later, which is fine, just slower.
+gap the Thinker Agent has to ask you about later, which is fine, just slower.
 
 If there's supporting material (a spec, a Figma link description, API docs),
 put it in `documentation.md` in the same folder.
@@ -135,14 +135,14 @@ npm run think -- --feature login --prefix LG --copy
 ```
 
 This does **not** call any AI model itself — it assembles everything the
-Thinking Agent needs into one file (the requirement, the schema, the
+Thinker Agent needs into one file (the requirement, the schema, the
 checklist, what `inspect` saw) and copies it to your clipboard.
 
 Now you need an actual model to read that pack. Two free ways (both explained
 in [`docs/NO-EXTRA-COST.md`](NO-EXTRA-COST.md) — read that once, it matters):
 
 - **If you're working in Claude Code already:** just tell it — *"Act as the
-  Thinking Agent. Read `thinking/prompts/prompt-login-<date>.md` and follow it
+  Thinker Agent. Read `thinking/prompts/prompt-login-<date>.md` and follow it
   exactly. Save the analysis and each intent to disk as it says."* It reads
   and writes the files itself. No copy-paste.
 - **If you're using claude.ai in a browser:** paste the pack in, save the
@@ -323,9 +323,9 @@ npm run defects -- --from-exploration --feature login
 npm run metrics
 ```
 
-One table per feature: how many gaps you found, Gate 1/1.5 review time, how
+One table per feature: how many gaps you found, Gate 2/1.5 review time, how
 often the binder needed you, PASS/FAIL/BLOCKED/INCONCLUSIVE counts, the
-false-defect rate at Gate 2. Your lead uses this to compare features against
+false-defect rate at Gate 3. Your lead uses this to compare features against
 each other — it's worth running after every feature, not just at the end.
 
 ### Step 15 — (Later) promote a proven mission to a permanent fast test
@@ -351,13 +351,13 @@ feature is stable enough for it.
 |---|---|
 | Start a brand-new feature | `npm run new-feature -- --name <x> --url <url> --prefix <XX>` |
 | Look at the real app before testing it | `npm run inspect -- --feature <x>` |
-| Build the pack for the Thinking Agent | `npm run think -- --feature <x> --prefix <XX> --copy` |
+| Build the pack for the Thinker Agent | `npm run think -- --feature <x> --prefix <XX> --copy` |
 | File what the model gave back (browser route) | `npm run import -- --from reply.md --feature <x>` |
 | See/answer the open questions | `npm run clarify -- --feature <x>` / `... --answer Q-1 --text "..." --by "you"` |
 | Check everything is valid | `npm run validate` |
-| Approve an intent (Gate 1) | `npm run approve-intent -- <ID> --by "you" --minutes <n>` |
+| Approve an intent (Gate 2) | `npm run approve-intent -- <ID> --by "you" --minutes <n>` |
 | Bind intents to the real page | `npm run bind -- --feature <x> --write` |
-| Approve a mission (Gate 1.5) | `npm run approve -- <ID> --by "you" --minutes <n> [--reviewed]` |
+| Approve a mission (Gate 2.5) | `npm run approve -- <ID> --by "you" --minutes <n> [--reviewed]` |
 | Run a mission | `npm run run-mission -- --feature <x> [<ID>] [--headless]` |
 | Read what happened | `npm run report` |
 | Turn a failure into a ticket | `npm run defects` → `--list` → `--show <fp>` → `--confirm/--reject` |
@@ -378,8 +378,8 @@ Every command's own `--help`-style usage is at the top of its file in
 input/feature-<x>/requirement.md      the requirement, in your own words or pasted
 input/feature-<x>/clarifications.yaml the question-and-answer ledger
 knowledge/application-context-<x>.yaml what the app looks like: pages, roles, rules
-intents/draft/ , intents/approved/     UI-free tests, before and after Gate 1
-missions/draft/ , missions/approved/   tests bound to real controls, before/after Gate 1.5
+intents/draft/ , intents/approved/     UI-free tests, before and after Gate 2
+missions/draft/ , missions/approved/   tests bound to real controls, before/after Gate 2.5
 runs/<ID>/<timestamp>/                 every execution's raw evidence
 reports/smoke-*.md                     the human-readable run report
 reports/defects/                       one file per confirmed/rejected bug
@@ -396,13 +396,13 @@ tests/generated/*.spec.ts              frozen, permanent Playwright tests (Step 
 
 | Gate | Command | What it's actually checking |
 |---|---|---|
-| **Gate 1** | `approve-intent` | Does this test rest on any unanswered question? Is it otherwise well-formed? |
-| **Gate 1.5** | `approve` | Did binding this intent to the real page require a guess? If so, is the guess acceptable? |
-| **Gate 2** | `defects --confirm/--reject` | Is this actually a product bug, or an environment/test problem? |
+| **Gate 2** | `approve-intent` | Does this test rest on any unanswered question? Is it otherwise well-formed? |
+| **Gate 2.5** | `approve` | Did binding this intent to the real page require a guess? If so, is the guess acceptable? |
+| **Gate 3** | `defects --confirm/--reject` | Is this actually a product bug, or an environment/test problem? |
 
 Every one of these can say no. That's not the tool being broken — a refusal
-at Gate 1 means a real gap in the requirement got caught before anyone wasted
-time testing a guess; a refusal at Gate 1.5 means an ambiguous page control
+at Gate 2 means a real gap in the requirement got caught before anyone wasted
+time testing a guess; a refusal at Gate 2.5 means an ambiguous page control
 got caught before it silently tested the wrong thing.
 
 ---

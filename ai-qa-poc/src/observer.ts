@@ -26,7 +26,30 @@ export type FindingKind =
   | 'http_error'
   | 'request_failed'
   | 'broken_image'
-  | 'unlabelled_control';
+  | 'unlabelled_control'
+  /** API traffic that a status code alone does not reveal (src/api-checks.ts). */
+  | 'api_error_in_success'
+  | 'api_invalid_json'
+  | 'slow_api'
+  /** Responsive layout (src/layout.ts). */
+  | 'layout_overflow'
+  | 'control_offscreen'
+  | 'control_covered'
+  | 'small_tap_target'
+  /** A WCAG rule axe-core found broken (src/a11y.ts). */
+  | 'a11y_violation'
+  /** The page looks different from its approved baseline (src/visual.ts). */
+  | 'visual_change'
+  /** Passive security checks (src/security.ts). */
+  | 'secret_in_url'
+  | 'insecure_cookie'
+  | 'missing_security_header'
+  | 'mixed_content'
+  /** A role reached a page it should not (or was refused one it should reach). */
+  | 'access_leak'
+  | 'access_refused'
+  /** A page over its performance limits (src/performance.ts). */
+  | 'slow_page';
 
 export type Severity = 'high' | 'medium' | 'low';
 
@@ -62,11 +85,26 @@ function severityForStatus(status: number): Severity {
   return 'low';
 }
 
+/** Findings about one element's geometry: never merged with resource findings. */
+const LAYOUT_KINDS = new Set<FindingKind>(['layout_overflow', 'control_offscreen', 'control_covered', 'small_tap_target', 'a11y_violation', 'visual_change', 'secret_in_url', 'insecure_cookie', 'missing_security_header', 'mixed_content', 'access_leak', 'access_refused', 'slow_page']);
+
 export class Observer {
   private readonly findings = new Map<string, Finding>();
   private currentStep = 0;
 
+  /** Calls the test failed on purpose (fault injection) are not findings. */
+  private planned: (method: string, url: string) => boolean = () => false;
+
   constructor(private readonly page: Page) {}
+
+  ignorePlanned(isPlanned: (method: string, url: string) => boolean): void {
+    this.planned = isPlanned;
+  }
+
+  /** Record a finding produced outside the page listeners (API health, after the run). */
+  add(f: { key: string; kind: FindingKind; severity: Severity; summary: string; detail?: string; url?: string }): void {
+    this.record(f.key, f.kind, f.severity, f.summary, f.detail, f.url);
+  }
 
   /** Lets a finding be attributed to the step that was running when it fired. */
   setStep(step: number): void {
@@ -145,7 +183,7 @@ export class Observer {
       const status = response.status();
       if (status < 400) return;
       const url = response.url();
-      if (isNoise(url)) return;
+      if (isNoise(url) || this.planned(response.request().method(), url)) return;
       this.record(
         `http:${status}:${url}`,
         'http_error',
@@ -158,7 +196,7 @@ export class Observer {
 
     this.listen('requestfailed', (request: Request) => {
       const url = request.url();
-      if (isNoise(url)) return;
+      if (isNoise(url) || this.planned(request.method(), url)) return;
       const reason = request.failure()?.errorText ?? 'unknown';
       // A request aborted because the page navigated away is ordinary browser
       // behaviour, not a defect. Reporting it buries the real findings — and a
@@ -261,6 +299,22 @@ export class Observer {
       request_failed: 3,
       console_error: 4,
       unlabelled_control: 5,
+      api_error_in_success: 6,
+      api_invalid_json: 7,
+      slow_api: 8,
+      layout_overflow: 9,
+      control_offscreen: 10,
+      control_covered: 11,
+      small_tap_target: 12,
+      a11y_violation: 13,
+      visual_change: 14,
+      secret_in_url: 15,
+      insecure_cookie: 16,
+      missing_security_header: 17,
+      mixed_content: 18,
+      access_leak: 19,
+      access_refused: 20,
+      slow_page: 21,
     };
 
     const byResource = new Map<string, Finding>();
@@ -270,7 +324,9 @@ export class Observer {
       const url = Observer.rootUrl(f);
       // Only resource-level findings share a root cause this way; a console
       // error with no URL is its own thing.
-      if (!url || f.kind === 'unlabelled_control') {
+      // API findings are about one call each and are already deduplicated by
+      // method and path; merging them with page-resource findings would lose them.
+      if (!url || f.kind === 'unlabelled_control' || f.kind.startsWith('api_') || f.kind === 'slow_api' || LAYOUT_KINDS.has(f.kind)) {
         standalone.push(f);
         continue;
       }

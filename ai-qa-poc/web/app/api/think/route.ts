@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'node:fs';
 import { answersTurn, runAgent, type ClarifyingQuestion } from '@/lib/agent';
-import { configuredDefault, estimateCost, isAllowedModel } from '@/lib/models';
+import { availableModels, configuredDefault, discoverAvailableModels, estimateCost, isAllowedModel } from '@/lib/models';
 import path from 'node:path';
 import { listFeatures, PROJECT_ROOT } from '@/lib/paths';
 
@@ -12,9 +12,13 @@ export const maxDuration = 300;
 
 /** Feature list + configured default, for the UI to render its controls. */
 export async function GET() {
+  const models = await discoverAvailableModels();
+  const configured = configuredDefault();
+  const defaultModel = models.some((model) => model.id === configured.model) ? configured.model : models[0]?.id;
   return NextResponse.json({
     features: listFeatures().map((f) => ({ id: f.id, label: f.label })),
-    default: configuredDefault(),
+    models,
+    default: { ...configured, model: defaultModel },
   });
 }
 
@@ -34,7 +38,7 @@ export async function POST(request: Request) {
     };
 
     const cfg = configuredDefault();
-    const model = body.model ?? cfg.model;
+    const model = body.model ?? availableModels()[0]?.id ?? cfg.model;
     const effort = body.effort ?? cfg.effort;
 
     if (!isAllowedModel(model)) {

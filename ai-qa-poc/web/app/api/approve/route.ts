@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 const run = promisify(execFile);
 
 /**
- * Gate 1.5, from the UI — by running the CLI, not by reimplementing it.
+ * Gate 2.5, from the UI — by running the CLI, not by reimplementing it.
  *
  * This route used to stamp the approval itself: read the JSON, hash the
  * requirement, write the file. It was a faithful copy of `scripts/approve.ts`
@@ -25,7 +25,7 @@ const run = promisify(execFile);
  * that does not enforce them is worse than not having the entry point.
  *
  * Delegating removes the possibility rather than fixing this instance of it.
- * There is now one implementation of Gate 1.5, it lives in `scripts/approve.ts`,
+ * There is now one implementation of Gate 2.5, it lives in `scripts/approve.ts`,
  * and anything added there applies here on the next request with no code change
  * — the same reasoning `lib/paths.ts` already gives for not copying the system
  * prompt or the schema.

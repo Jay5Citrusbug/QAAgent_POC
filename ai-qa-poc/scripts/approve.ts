@@ -1,5 +1,5 @@
 /**
- * Gate 1 — human approval of a drafted mission.
+ * Gate 2 — human approval of a drafted mission.
  *
  *   npm run approve -- SM-001 --by "jay.r" --minutes 4 --edited
  *
@@ -55,7 +55,7 @@ if (!valid) {
 }
 
 /**
- * Gate 1.5 — [R4] the binding review, by exception.
+ * Gate 2.5 — [R4] the binding review, by exception.
  *
  * A mission produced by phase 2a carries the list of things the binder could
  * not settle: a control it could not find, two it could not choose between, an
@@ -129,7 +129,7 @@ if (mission.binding?.exceptions?.length) {
   mission.binding.exceptions = mission.binding.exceptions.map((e) => ({
     ...e,
     resolved_by: by,
-    resolution: e.resolution ?? 'Reviewed and accepted at Gate 1.5.',
+    resolution: e.resolution ?? 'Reviewed and accepted at Gate 2.5.',
   }));
 }
 

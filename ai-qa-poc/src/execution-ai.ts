@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PATHS } from './config.js';
+import { z } from 'zod';
+import { aiAvailable, askStructured } from './ai-client.js';
 import type { ExecutionResult, TestMission } from './types.js';
 
 export interface ExecutionAiAnalysis {
@@ -27,8 +29,45 @@ export function analysisKey(result: ExecutionResult): string | undefined {
   return `result:${result.failure_kind ?? 'unknown'}:${failed?.error ?? failed?.observed ?? result.actual.join('|')}`;
 }
 
+type Provider = 'anthropic' | 'openai' | 'google';
+
+function providerForModel(model: string): Provider {
+  if (/^(gpt-|o[1-9]|chatgpt-)/i.test(model)) return 'openai';
+  if (/^(gemini-|gemma-)/i.test(model)) return 'google';
+  return 'anthropic';
+}
+
+function providerAvailable(provider: Provider): boolean {
+  if (provider === 'anthropic') return Boolean(process.env.ANTHROPIC_API_KEY);
+  if (provider === 'openai') return Boolean(process.env.OPENAI_API_KEY);
+  return Boolean(process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY);
+}
+
+/** A non-Claude model is used only when named explicitly and its key is set. */
+function wantsOtherProvider(): boolean {
+  const m = process.env.EXECUTION_AI_MODEL ?? '';
+  const p = providerForModel(m);
+  return p !== 'anthropic' && providerAvailable(p);
+}
+
 function enabled(): boolean {
-  return process.env.EXECUTION_AI === 'true' && Boolean(process.env.ANTHROPIC_API_KEY);
+  // Claude runs through ai-client.ts: the Claude Code subscription by default,
+  // the API only when a key is set — so no key is needed for triage either.
+  return process.env.EXECUTION_AI === 'true' && (aiAvailable() || wantsOtherProvider());
+}
+
+const Triage = z.object({
+  summary: z.string(),
+  likely_cause: z.enum(['product_defect', 'test_or_binding_problem', 'environment_problem', 'inconclusive']),
+  confidence: z.enum(['HIGH', 'MEDIUM', 'LOW']),
+  evidence: z.array(z.string()),
+  follow_up: z.array(z.string()),
+});
+
+function defaultModel(): string {
+  if (process.env.EXECUTION_AI_MODEL) return process.env.EXECUTION_AI_MODEL;
+  if (providerAvailable('openai')) return 'gpt-5';
+  return 'gemini-2.5-pro';
 }
 
 function readEvidence(result: ExecutionResult): string {
@@ -57,7 +96,8 @@ export async function analyzeExecution(
 ): Promise<ExecutionAiAnalysis> {
   if (!enabled()) return { status: 'skipped' };
 
-  const model = process.env.EXECUTION_AI_MODEL ?? 'claude-sonnet-5';
+  const model = defaultModel();
+  const provider = wantsOtherProvider() ? providerForModel(model) : 'anthropic';
   const prompt = `You are a QA triage analyst reviewing one deterministic browser execution.
 Do not invent a result and do not change PASS/FAIL/BLOCKED/INCONCLUSIVE. Analyze only the evidence provided.
 Return ONLY JSON with this shape:
@@ -78,25 +118,39 @@ ${JSON.stringify(result)}
 Captured evidence:
 ${readEvidence(result)}`;
 
+  const system = 'You are a careful QA reviewer. Evidence beats speculation.';
+  if (provider === 'anthropic') {
+    const answer = await askStructured(Triage, system, prompt, { timeoutMs: 180_000 });
+    return answer.ok
+      ? { status: 'available', model: answer.model, ...answer.value }
+      : { status: 'failed', model: answer.model, error: answer.error };
+  }
+
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY as string,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 700,
-        temperature: 0,
-        system: 'You are a careful QA reviewer. Evidence beats speculation.',
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!response.ok) throw new Error(`Anthropic API returned HTTP ${response.status}.`);
-    const body = (await response.json()) as { content?: { type: string; text?: string }[] };
-    const text = body.content?.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n') ?? '';
+    let text = '';
+    if (provider === 'openai') {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+        body: JSON.stringify({ model, max_completion_tokens: 700, messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }] }),
+      });
+      if (!response.ok) throw new Error(`OpenAI API returned HTTP ${response.status}.`);
+      const body = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+      text = body.choices?.[0]?.message?.content ?? '';
+    } else {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 700, responseMimeType: 'application/json' },
+        }),
+      });
+      if (!response.ok) throw new Error(`Google AI API returned HTTP ${response.status}.`);
+      const body = (await response.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+      text = body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
+    }
     return { status: 'available', model, ...extractJson(text) };
   } catch (error) {
     return {

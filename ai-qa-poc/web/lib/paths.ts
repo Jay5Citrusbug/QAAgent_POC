@@ -21,6 +21,9 @@ export const P = {
   missionsDraft: path.join(PROJECT_ROOT, 'missions', 'draft'),
   missionsApproved: path.join(PROJECT_ROOT, 'missions', 'approved'),
   analysisDir: path.join(PROJECT_ROOT, 'thinking', 'analysis'),
+  runs: path.join(PROJECT_ROOT, 'runs'),
+  reports: path.join(PROJECT_ROOT, 'reports'),
+  defects: path.join(PROJECT_ROOT, 'reports', 'defects'),
 } as const;
 
 export function readIfPresent(file: string): string | undefined {

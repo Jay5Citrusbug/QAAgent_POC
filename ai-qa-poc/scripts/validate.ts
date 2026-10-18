@@ -14,6 +14,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { PATHS } from '../src/config.js';
 import { isApproved, lintMission, readMissionFile, validateMission } from '../src/validate.js';
 import { loadLedger } from '../src/clarifications.js';
@@ -51,7 +52,7 @@ let failures = 0;
 let warnings = 0;
 let blocked = 0;
 
-// --- Intents (Gate 1) -------------------------------------------------------
+// --- Intents (Gate 2) -------------------------------------------------------
 
 /** One ledger per feature, loaded once — a feature's intents all share it. */
 const ledgers = new Map<string, ReturnType<typeof loadLedger>>();
@@ -107,7 +108,7 @@ for (const file of intentFiles) {
 
 if (intentFiles.length > 0 && files.length > 0) console.log('');
 
-// --- Missions (Gate 1.5, reviewed by exception) ----------------------------------------------------
+// --- Missions (Gate 2.5, reviewed by exception) ----------------------------------------------------
 
 for (const file of files) {
   const where = path.relative(PATHS.root, file).split(path.sep).join('/');
@@ -154,7 +155,7 @@ if (warnings > 0 && failures === 0) {
   console.log('Warnings are for the human at a gate to judge — they do not block execution.');
 }
 if (blocked > 0) {
-  console.log('Blocked intents cannot pass Gate 1 until the questions are answered:');
+  console.log('Blocked intents cannot pass Gate 2 until the questions are answered:');
   console.log('  npm run clarify -- --open');
 }
 
@@ -189,6 +190,24 @@ if (intentFiles.length > 0 || files.length > 0) {
     console.log(`  ${open.map((g) => g.key).join(', ')}`);
     console.log('  Each needs an intent, or a reason in input/feature-*/coverage-exclusions.yaml.');
     console.log('  npm run coverage -- --check --drafts   (fails the build on exactly this)');
+  }
+
+  // Keep the human-readable catalog beside the source missions every time the
+  // normal validation command runs, so reviewing JSON one file at a time is
+  // never required.
+  if (files.length > 0 && !filter) {
+    const reportScript = path.join(PATHS.root, 'scripts', 'test-cases-report.ts');
+    if (fs.existsSync(reportScript)) {
+      console.log('');
+      try {
+        execFileSync(process.execPath, [path.join(PATHS.root, 'node_modules', 'tsx', 'dist', 'cli.mjs'), reportScript], {
+          cwd: PATHS.root,
+          stdio: 'inherit',
+        });
+      } catch {
+        console.warn('! Could not refresh the consolidated test-case catalog. Run `npm run test-cases` manually.');
+      }
+    }
   }
 }
 process.exit(failures > 0 ? 1 : 0);

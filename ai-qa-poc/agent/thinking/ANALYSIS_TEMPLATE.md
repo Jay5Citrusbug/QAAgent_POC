@@ -1,6 +1,6 @@
 # Analysis template
 
-The Thinking Agent produces two things. The missions go to `missions/draft/`.
+The Thinker Agent produces two things. The missions go to `missions/draft/`.
 **This** is the shape of the other half — and it gets committed to
 `thinking/analysis/<feature>-<YYYY-MM-DD>.md`.
 
@@ -14,8 +14,8 @@ them to a closed tab is the single cheapest mistake available here.
 ```markdown
 # Analysis — <feature> — <YYYY-MM-DD>
 
-* **Requirement source:** <path under input/feature/, or ticket id>
-* **Model:** claude-opus-5 (effort high)
+* **Requirement source:** <stamped by the tool>
+* **Model:** <stamped by the tool>
 * **Analyst (human reviewer):** <name>
 
 ## 1. Requirement gaps

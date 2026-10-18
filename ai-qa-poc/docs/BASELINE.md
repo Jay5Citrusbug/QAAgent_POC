@@ -34,7 +34,7 @@ never the expensive part.
 
 ---
 
-## 2. Mission edit rate (capture every time, at Gate 1)
+## 2. Mission edit rate (capture every time, at Gate 2)
 
 This is the number most likely to kill the approach quietly. Missions a human
 must heavily rewrite are a net loss even when execution is free — the review
@@ -51,18 +51,18 @@ approval block, so this table can be rebuilt from git at any time.
 | SM-004 | | | | |
 
 **Watch for:** review minutes not falling across missions. If mission 4 takes as
-long to review as mission 1, the Thinking Agent's prompt is not improving and
-the bottleneck has moved to Gate 1.
+long to review as mission 1, the Thinker Agent's prompt is not improving and
+the bottleneck has moved to Gate 2.
 
 ---
 
 ## 3. Per-run execution cost
 
-| Run date | Missions | Wall clock | PASS | FAIL | BLOCKED | INCONCLUSIVE | Human minutes at Gate 2 |
+| Run date | Missions | Wall clock | PASS | FAIL | BLOCKED | INCONCLUSIVE | Human minutes at Gate 3 |
 |---|---|---|---|---|---|---|---|
 | | | | | | | | |
 
-Gate 2 minutes matter as much as Gate 1. A run that produces four INCONCLUSIVE
+Gate 3 minutes matter as much as Gate 2. A run that produces four INCONCLUSIVE
 results and forty minutes of human investigation has cost more than the manual
 smoke it replaced.
 

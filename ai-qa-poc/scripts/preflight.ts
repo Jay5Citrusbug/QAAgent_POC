@@ -79,7 +79,7 @@ const open = ledger.questions.filter((q) => q.status === 'open');
 if (open.length > 0) {
   asks.push({
     heading: `${open.length} unanswered question(s) about the requirement`,
-    why: 'Any test resting on one of these cannot pass Gate 1 — it would be asserting a rule nobody agreed to.',
+    why: 'Any test resting on one of these cannot pass Gate 2 — it would be asserting a rule nobody agreed to.',
     items: open.map((q) => `${q.id} — ${q.question.replace(/\s+/g, ' ').trim()}`),
     how: `npm run clarify -- --feature ${featureName ?? '<feature>'} --answer <Q-n> --text "..." --by "<you>"`,
   });

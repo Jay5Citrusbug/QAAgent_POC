@@ -8,19 +8,25 @@
  *   npm run defects -- --show <fingerprint>      # print one, ready to paste
  *   npm run defects -- --confirm <fp> --by "jay.r" --ticket QA-123
  *   npm run defects -- --reject  <fp> --by "jay.r" --note "environment, not the product"
+ *   npm run defects -- --review                  # rebuild reports/DEFECT-REVIEW.html only
+ *
+ * reports/DEFECT-REVIEW.html is the Gate 3 page: every defect laid out as Jira
+ * fields with copy buttons, for a person to post by hand. It is rewritten by
+ * every command here and by every run. Nothing is ever sent to Jira.
  *
  * POC-1 deliberately does not talk to a tracker (VISION §13b). What it does is
  * remove the ten minutes of writing-up per defect that gets skipped when the
  * sprint is tight — which is how real bugs end up as a line in a report nobody
  * actions. Each report is complete enough to paste in and assign.
  *
- * Nothing is filed automatically and nothing is confirmed by a machine. Gate 2
+ * Nothing is filed automatically and nothing is confirmed by a machine. Gate 3
  * is a person.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadAppContext, PATHS, rel } from '../src/config.js';
 import { fromExecution, fromFinding, listDefects, renderDefect, upsert, writeReport, type DefectCandidate } from '../src/defect.js';
+import { writeDefectReview } from '../src/defect-review.js';
 import { listExplorations } from '../src/exploration.js';
 import { readMissionFile } from '../src/validate.js';
 import type { ExecutionResult, TestMission } from '../src/types.js';
@@ -31,7 +37,20 @@ function arg(name: string): string | undefined {
 }
 const has = (name: string): boolean => process.argv.includes(`--${name}`);
 
+/** Print where the review page is and what is waiting on it. */
+function announceReview(): void {
+  const { file, counts } = writeDefectReview();
+  console.log('');
+  console.log(`Defect review: ${file}   ← open in a browser`);
+  console.log(`  ${counts.review} to review · ${counts.ready} confirmed, not yet in Jira · ${counts.posted} posted · ${counts.rejected} rejected`);
+}
+
 // --- Read-only modes --------------------------------------------------------
+
+if (has('review')) {
+  announceReview();
+  process.exit(0);
+}
 
 if (has('list')) {
   const all = listDefects();
@@ -49,7 +68,7 @@ if (has('list')) {
     console.log(`    ${d.title}`);
   }
   console.log('');
-  console.log('● confirmed   ○ candidate, waiting on Gate 2   · rejected');
+  console.log('● confirmed   ○ candidate, waiting on Gate 3   · rejected');
   console.log('');
   console.log('  npm run defects -- --show <fingerprint>      the paste-ready report');
   console.log('  npm run defects -- --confirm <fingerprint> --by "<name>" --ticket <KEY>');
@@ -67,7 +86,7 @@ if (has('show')) {
   process.exit(0);
 }
 
-// --- Gate 2 decisions -------------------------------------------------------
+// --- Gate 3 decisions -------------------------------------------------------
 
 for (const decision of ['confirm', 'reject'] as const) {
   if (!has(decision)) continue;
@@ -86,14 +105,18 @@ for (const decision of ['confirm', 'reject'] as const) {
   }
 
   const d = JSON.parse(fs.readFileSync(file, 'utf8')) as DefectCandidate;
+  // Confirming again to add the Jira key after posting keeps the first
+  // review's note and minutes; a reversed decision starts clean.
+  const sameDecision = d.status === (decision === 'confirm' ? 'confirmed' : 'rejected');
   d.status = decision === 'confirm' ? 'confirmed' : 'rejected';
   d.human_review = {
+    ...(sameDecision ? d.human_review : {}),
     reviewed_by: by,
     reviewed_at: new Date().toISOString(),
     decision: decision === 'confirm' ? 'Confirmed as a product defect.' : 'Not a product defect.',
     ...(arg('note') ? { note: arg('note') } : {}),
     ...(arg('ticket') ? { ticket: arg('ticket') } : {}),
-    // Gate 2 minutes matter as much as Gate 1's. A run producing four
+    // Gate 3 minutes matter as much as the other gates'. A run producing four
     // INCONCLUSIVE results and forty minutes of investigation has cost more
     // than doing it by hand, and nothing else records that.
     ...(arg('minutes') ? { review_minutes: Number(arg('minutes')) } : {}),
@@ -108,7 +131,8 @@ for (const decision of ['confirm', 'reject'] as const) {
     console.log(`Paste-ready report: ${md}`);
     if (!arg('ticket')) {
       console.log('');
-      console.log('Once it is raised, record the key so the next run can link to it:');
+      console.log('Post it to Jira by hand from the review page, then record the key so the next');
+      console.log('run links to it instead of raising it again:');
       console.log(`  npm run defects -- --confirm ${fp} --by "${by}" --ticket <KEY>`);
     }
   } else {
@@ -116,6 +140,7 @@ for (const decision of ['confirm', 'reject'] as const) {
     console.log('Kept, not deleted. A defect the team decided was not a defect is information');
     console.log('the next run needs, or it gets re-raised forever.');
   }
+  announceReview();
   process.exit(0);
 }
 
@@ -156,10 +181,11 @@ if (has('from-exploration')) {
   console.log(`  new defect reports  ${made}`);
   console.log(`  repeats merged      ${repeated}`);
   console.log('');
-  console.log(`${waiting.length} report(s) awaiting Gate 2 in ${rel(PATHS.defects)}`);
+  console.log(`${waiting.length} report(s) awaiting Gate 3 in ${rel(PATHS.defects)}`);
   console.log('');
   console.log('These came from exploration, so no requirement states what should have');
   console.log('happened. Whether each is a defect is a product judgement, not a test result.');
+  announceReview();
   process.exit(0);
 }
 
@@ -255,7 +281,7 @@ console.log(`  repeats merged            ${merged}`);
 console.log(`  from exploration findings ${fromFindings}`);
 console.log(`  non-defect results ignored ${ignored}`);
 console.log('');
-console.log(`${all.length} report(s) in ${rel(PATHS.defects)}, ${candidates.length} awaiting Gate 2.`);
+console.log(`${all.length} report(s) in ${rel(PATHS.defects)}, ${candidates.length} awaiting Gate 3.`);
 
 if (candidates.length) {
   console.log('');
@@ -270,3 +296,4 @@ if (candidates.length) {
   console.log('Nothing has been filed anywhere. Each report is written to be pasted into a');
   console.log('ticket once you agree it is real.');
 }
+announceReview();

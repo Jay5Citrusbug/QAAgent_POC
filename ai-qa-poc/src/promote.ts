@@ -96,7 +96,7 @@ export function assess(mission: TestMission, minPasses: number): Eligibility {
     return { ...base, eligible: false, reason: `${passes} pass(es), needs ${minPasses}` };
   }
   if (!mission.approval) {
-    return { ...base, eligible: false, reason: 'not approved at Gate 1.5' };
+    return { ...base, eligible: false, reason: 'not approved at Gate 2.5' };
   }
   return { ...base, eligible: true, reason: `${passes} consecutive passes` };
 }

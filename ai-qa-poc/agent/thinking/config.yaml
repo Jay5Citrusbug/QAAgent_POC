@@ -1,11 +1,11 @@
 # Thinking Agent configuration.
 #
-# POC-1 has no LLM API integration: `npm run think` assembles the prompt and a
-# human pastes it into the model. This file records which model that should be,
-# so the choice is a committed decision rather than whatever tab was open — and
-# so the Stage 2 script has something to read when the integration is built.
+# `npm run think -- --run` sends the prompt pack to this model through Claude
+# Code headless, on the Claude subscription (no API key). Without --run the
+# pack is pasted by hand — into this same model. Either way the choice is a
+# committed decision rather than whatever tab was open.
 
-model: claude-opus-5
+model: claude-opus-5-5
 
 # Opus 5 thinks by default. Effort controls depth; `high` is the right level for
 # requirement analysis — the work is finding what ISN'T stated, which is where
@@ -31,5 +31,5 @@ output:
   analysis: thinking/analysis
   # Where generated prompt packs are written (gitignored — they are rebuildable).
   prompts: thinking/prompts
-  # Where draft missions go, for Gate 1.
+  # Where draft missions go, for Gate 2.
   missions: missions/draft

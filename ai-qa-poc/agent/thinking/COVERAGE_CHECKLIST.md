@@ -8,7 +8,7 @@ unconsidered category is how bugs escape.
 Each category carries an **execution capability** rating, because proposing a
 test case is not the same as being able to run it. The Execution Agent today is
 a Chromium browser driver with no API client, no database access, and no visual
-comparison. A mission in a `manual` category is still worth generating — a human
+comparison of its own (API checks read the XHR/fetch calls the UI makes). A mission in a `manual` category is still worth generating — a human
 runs it — but calling it automated coverage would be a lie that hides risk.
 
 | Key | Category | Executable today | Why |
@@ -18,15 +18,17 @@ runs it — but calling it automated coverage would be a lie that hides risk.
 | `negative` | Invalid input is refused | ✅ automated | Use `expected_outcome: "blocked"` |
 | `input_validation` | Valid / invalid / boundary inputs | ✅ automated | Field-level checks and error messages |
 | `navigation` | Links, buttons, transitions, no dead ends | ✅ automated | URL and visibility assertions |
-| `edge_case` | Long text, large files, unusual states | ⚠️ partial | Long text and odd input yes; network loss and session expiry no |
-| `ui_ux` | Alignment, spacing, layout, consistency | ⚠️ partial | Structure and presence yes; **visual defects no** (see below) |
-| `data_integrity` | Data consistent after refresh, sort, filter | ⚠️ partial | UI-visible state yes; **database truth no** |
-| `error_handling` | Failures degrade gracefully | ⚠️ partial | UI error messages yes; **inducing server failure no** |
-| `security` | Auth, access control, session | ⚠️ partial | Direct-URL access control yes; session expiry and masking partly |
-| `api` | Status codes, payloads, contracts | ❌ manual | No HTTP client in the executor |
-| `integration` | Frontend matches backend | ❌ manual | Needs API + UI in one assertion |
-| `compatibility` | Cross-browser | ❌ manual | POC-1 is Chromium only |
-| `responsive` | Mobile, tablet, desktop | ❌ manual | No viewport matrix yet |
+| `edge_case` | Long text, large files, unusual states | ✅ automated | Long text, odd input, network loss and slow responses (`fault`), session expiry (`simulate: "session_expired"`) |
+| `ui_ux` | Alignment, spacing, layout, consistency | ⚠️ partial | Structure and presence by DOM; visual changes by screenshot vs an approved baseline (`looks_like_baseline`, and every run); design judgement no |
+| `data_integrity` | Data consistent after refresh, sort, filter | ⚠️ partial | UI state, and the stored record read back through the API (`steps[].api` GET); **direct database queries no** |
+| `error_handling` | Failures degrade gracefully | ✅ automated | Any API call can be made to fail (`fault`: server_error, not_found, timeout, offline, slow); the test checks what the user is told |
+| `security` | Auth, access control, session | ⚠️ partial | Role × page access matrix (`access:` in the app context, `npm run access-matrix`), session expiry, passive checks on every run (cookie flags, security headers, secrets in URLs, mixed content); active attack testing no |
+| `api` | Status codes, payloads, contracts | ✅ automated | Calls the UI makes, and direct calls (`steps[].api`): status, body text, JSON fields (`observable: "api_response"`) |
+| `integration` | Frontend matches backend | ✅ automated | `observable: "ui_matches_api"` compares what an element shows with an API field; create via API and check in the UI, or the reverse |
+| `compatibility` | Cross-browser | ✅ automated | Chromium, Firefox and WebKit (Safari's engine): `browser` on the intent, or the whole run with `--browser` |
+| `performance` | Page speed for one user | ⚠️ partial | TTFB, LCP, CLS and load on every run, and `performance_budget` ("loads within 3 seconds"); load testing (many users) no |
+| `accessibility` | WCAG A/AA: contrast, names, labels, ARIA, structure | ⚠️ partial | axe-core rules via the `accessible` check, and on every run; keyboard-only use and focus order still need a person |
+| `responsive` | Mobile, tablet, desktop | ✅ automated | `viewport` on the intent; the `layout_sound` check finds sideways scroll, cut-off and covered controls, small tap targets |
 
 ## The visual blind spot — state it, do not paper over it
 
@@ -36,9 +38,12 @@ practice site the carousel arrows are exactly that: the `<svg>` exists, the
 Every fact a browser automation can read is right, and the control is invisible
 to a human.
 
-So a `ui_ux` mission may only claim what it can actually check — an element is
-present, has the right text, is in the right container. Anything about how it
-*looks* belongs in a manual mission, or waits for visual review.
+So a `ui_ux` mission checks structure through the DOM, and *appearance* through
+the screenshot comparison: every run compares the page with the baseline a
+person approved, and reports what changed and where (the white-on-white icon
+is caught this way). A page that must not drift at all gets an outcome like
+"the header looks as approved", which binds to `looks_like_baseline`. Whether
+a NEW design is right (on-brand, pleasing) is still a person's call.
 
 ## Sweeps beat per-element missions for whole classes
 

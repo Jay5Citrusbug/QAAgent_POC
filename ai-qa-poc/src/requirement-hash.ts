@@ -78,7 +78,7 @@ export function describeDrift(verdict: DriftVerdict): string | undefined {
       return (
         `The requirement at ${verdict.locator} has changed since this mission was approved ` +
         `(recorded ${verdict.recorded}, now ${verdict.current}). The mission may no longer test what it claims. ` +
-        `Re-read it at Gate 1 and re-approve.`
+        `Re-read it at Gate 2 and re-approve.`
       );
     case 'not_recorded':
       return 'No content_hash recorded, so a change to the requirement since approval cannot be detected.';

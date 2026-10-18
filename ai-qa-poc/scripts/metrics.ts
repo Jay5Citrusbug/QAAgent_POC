@@ -10,7 +10,7 @@
  * on disk, and says plainly what cannot.
  *
  * Run it after each requirement rather than once at the end. The measures that
- * matter are trends — Gate 1 review minutes falling, the false-defect rate not
+ * matter are trends — Gate 2 review minutes falling, the false-defect rate not
  * rising — and a trend reconstructed afterwards from whatever survived is not
  * the same thing as one that was watched.
  */

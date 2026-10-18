@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://qagents.local/schemas/defect-candidate.schema.json",
   "title": "Defect Candidate",
-  "description": "[R4] A defect report assembled from run artifacts, complete enough to paste into a tracker and hand to a developer. Called a CANDIDATE because nothing here is a confirmed defect until a human says so at Gate 2 - VISION section 4 forbids automatic defect creation in POC-1, and section 13a is why: an agent that just failed is the least reliable narrator of why it failed.",
+  "description": "[R4] A defect report assembled from run artifacts, complete enough to paste into a tracker and hand to a developer. Called a CANDIDATE because nothing here is a confirmed defect until a human says so at Gate 3 - VISION section 4 forbids automatic defect creation in POC-1, and section 13a is why: an agent that just failed is the least reliable narrator of why it failed.",
   "type": "object",
   "additionalProperties": false,
   "required": [

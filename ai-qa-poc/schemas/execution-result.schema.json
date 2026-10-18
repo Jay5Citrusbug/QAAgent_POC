@@ -82,10 +82,15 @@
           "instruction": { "type": "string" },
           "outcome": { "type": "string", "enum": ["OK", "FAILED", "SKIPPED", "TOLERATED_FAILURE"] },
           "resolved_locator": { "type": "string", "description": "The Playwright locator actually used." },
-          "resolution_strategy": { "type": "string", "enum": ["cache", "test_id", "role_name", "label", "placeholder", "text", "selector", "none"] },
+          "resolution_strategy": { "type": "string", "enum": ["cache", "test_id", "role_name", "label", "placeholder", "text", "selector", "fuzzy", "synonym", "ai", "none"] },
           "resolution_confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
           "duration_ms": { "type": "integer" },
-          "error": { "type": "string" }
+          "error": { "type": "string" },
+          "resolution_note": { "type": "string", "description": "Why a fallback tier (fuzzy, synonym, ai) chose this element." },
+          "target_screenshot": { "type": "string", "description": "The element about to be acted on, outlined." },
+          "screenshot": { "type": "string", "description": "The page after the step." },
+          "resolved_as": { "type": "object", "description": "The real descriptor of an element found by a fallback tier; npm run heal proposes it." },
+          "url": { "type": "string" }
         }
       }
     },
@@ -119,7 +124,14 @@
           "evaluable": {
             "type": "boolean",
             "description": "[R2] False when the check could not be turned into a real expectation. Unevaluable means INCONCLUSIVE, never PASS."
-          }
+          },
+          "expected_value": { "type": "string" },
+          "match": { "type": "string", "enum": ["exact", "normalised", "semantic"], "description": "semantic = AI judged the observed text to mean the same as expected. Always flagged for review." },
+          "match_note": { "type": "string" },
+          "resolution_strategy": { "type": "string", "enum": ["cache", "test_id", "role_name", "label", "placeholder", "text", "selector", "fuzzy", "synonym", "ai", "none"] },
+          "resolution_note": { "type": "string" },
+          "resolved_as": { "type": "object" },
+          "screenshot": { "type": "string" }
         }
       }
     },
@@ -218,10 +230,42 @@
       }
     },
 
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "offset_ms"],
+      "description": "Screen recording. A reused browser can put several tests in one video; offset_ms is where this one starts.",
+      "properties": {
+        "path": { "type": "string" },
+        "offset_ms": { "type": "integer" },
+        "shared_with": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "total", "failed"],
+      "description": "API calls (XHR/fetch) the page made during this test.",
+      "properties": {
+        "path": { "type": "string" },
+        "total": { "type": "integer" },
+        "failed": { "type": "integer" }
+      }
+    },
+
+    "evidence_trust": {
+      "type": "string",
+      "enum": ["verified", "review", "weak"],
+      "description": "verified: exact matches only. review: a fallback tier or AI judgement was involved. weak: no clean verdict or evidence missing."
+    },
+
+    "trust_reasons": { "type": "array", "items": { "type": "string" } },
+
     "failure_classification": {
       "type": ["string", "null"],
       "enum": ["PRODUCT_DEFECT", "AGENT_EXECUTION_FAILURE", "ENVIRONMENT_FAILURE", "TEST_DATA_FAILURE", "INCONCLUSIVE", null],
-      "description": "Null on PASS. Proposed by the classifier pass, NOT by the executor - an agent that just failed is the least reliable narrator of why. The human at Gate 2 accepts or overrides."
+      "description": "Null on PASS. Proposed by the classifier pass, NOT by the executor - an agent that just failed is the least reliable narrator of why. The human at Gate 3 accepts or overrides."
     },
 
     "classification_source": {
@@ -238,7 +282,7 @@
 
     "human_review": {
       "type": "object",
-      "description": "Gate 2. Filled in by a person, never by an agent.",
+      "description": "Gate 3. Filled in by a person, never by an agent.",
       "additionalProperties": false,
       "properties": {
         "reviewed_by": { "type": "string" },

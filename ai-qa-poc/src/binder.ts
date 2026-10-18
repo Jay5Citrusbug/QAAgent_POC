@@ -1,5 +1,6 @@
 import type { Capture } from './captures.js';
 import type { ControlFact, PageReality } from './inspector.js';
+import { hashIntent } from './intents.js';
 import {
   describesWholeForm,
   fieldMentionedIn,
@@ -11,6 +12,7 @@ import {
 import type {
   ActionType,
   AppContext,
+  AssertionCheck,
   CheckType,
   Observable,
   TestIntent,
@@ -60,7 +62,9 @@ export type ExceptionKind =
   | 'value_unknown'
   | 'unsupported_step'
   | 'role_unresolved'
-  | 'data_unprovisioned';
+  | 'data_unprovisioned'
+  /** An API outcome whose endpoint nothing states — chosen from a run's network.json. */
+  | 'api_endpoint_unknown';
 
 export interface BindingException {
   kind: ExceptionKind;
@@ -233,6 +237,11 @@ function splitCompoundSteps(steps: TestIntent['steps']): TestIntent['steps'] {
 
   const out: TestIntent['steps'] = [];
   for (const step of steps) {
+    // An API step is one call, and a simulated event one event, whatever the sentence says.
+    if (step.api || step.simulate) {
+      out.push(step);
+      continue;
+    }
     const parts = step.actor_intent
       .split(/\s+and\s+then\s+|\s+and\s+|\s*,\s*then\s+|\s*;\s*/i)
       .map((x) => x.trim())
@@ -612,7 +621,57 @@ const CHECK_FOR: Record<Observable, { type: CheckType; needsValue: boolean; appr
   value_equals: { type: 'text_equals', needsValue: true, approximate: false },
   data_persisted: { type: 'visible', needsValue: false, approximate: true },
   access_denied: { type: 'not_visible', needsValue: false, approximate: true },
+  // Bound by apiCheckFrom() below, never by page candidates.
+  api_response: { type: 'api_response', needsValue: false, approximate: false },
+  // Bound below: the element from page candidates, the call and field from the statement.
+  ui_matches_api: { type: 'ui_matches_api', needsValue: false, approximate: false },
 };
+
+/**
+ * "POST /api/orders" → method + path for an api_request step. Path parameters
+ * ({id}, :id) become {saved.id}: filled from an earlier step's saved value.
+ */
+export function apiCallFrom(endpoint: string): { method: NonNullable<TestMission['actions'][number]['method']>; url: string } | undefined {
+  const m = endpoint.trim().match(/^(GET|POST|PUT|PATCH|DELETE)\s+(\S+)$/i);
+  if (!m) return undefined;
+  const url = m[2]!.replace(/\{([A-Za-z0-9_]+)\}/g, '{saved.$1}').replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, '{saved.$1}');
+  return { method: m[1]!.toUpperCase() as 'GET', url };
+}
+
+/** The JSON field an outcome names, written in backticks: `items.length`, `order.total`. */
+function jsonPathFrom(statement: string): string | undefined {
+  return statement.match(/`([A-Za-z_$][\w$]*(?:\[\d+\])?(?:\.[A-Za-z_$][\w$]*(?:\[\d+\])?)*)`/)?.[1];
+}
+
+/**
+ * An API outcome, bound from what its statement names.
+ *
+ *   "POST /api/cart returns 201"             → request + status
+ *   "the GET /api/orders/{id} call succeeds" → request + status 2xx
+ *
+ * The endpoint usually is NOT in a story, and a static page capture cannot
+ * show it. Guessing one would assert against a call that may not exist, so a
+ * missing endpoint becomes an exception for Gate 2.5 — answered from the
+ * network.json of a first run, which lists every call the page really made.
+ */
+/** A fault endpoint nobody has chosen yet. Matches no real call, and lint flags it. */
+export const UNSET_ENDPOINT = 'SET-AT-GATE-2.5';
+
+export function apiCheckFrom(statement: string): AssertionCheck | undefined {
+  const method = statement.match(/\b(GET|POST|PUT|PATCH|DELETE)\b/)?.[1];
+  const path = statement.match(/(?:^|[\s"'`(])(\/[a-z0-9_\-.{}:]+(?:\/[a-z0-9_\-.{}:]*)*)/i)?.[1];
+  if (!path) return undefined;
+  // /api/orders/{id} → /api/orders/ : the static prefix is what every real call shares.
+  const url = path.replace(/[{:].*$/, '');
+  const status =
+    statement.match(/(?:status|returns?|respond(?:s|ed)?(?:\s+with)?|code|HTTP)\s*(?:code\s*)?([1-5]\d\d|[1-5]xx)\b/i)?.[1] ??
+    (/\b(succeed|succeeds|successful|successfully|ok)\b/i.test(statement) ? '2xx' : undefined);
+  return {
+    type: 'api_response',
+    request: { ...(method ? { method } : {}), url_contains: url },
+    ...(status ? { status: /xx$/i.test(status) ? status.toLowerCase() : Number(status) } : {}),
+  };
+}
 
 // --- The bind ----------------------------------------------------------------
 
@@ -732,7 +791,7 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
   if (roleException) exceptions.push(roleException);
 
   // Data the intent needs but nobody has confirmed how to supply. Caught at
-  // Gate 1 as a warning; here it becomes a hard reason the mission cannot run.
+  // Gate 2 as a warning; here it becomes a hard reason the mission cannot run.
   for (const d of intent.test_data ?? []) {
     if (!d.provisioning || d.provisioning === 'unknown') {
       exceptions.push({
@@ -802,6 +861,31 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
 
   const currentUrl = { at: startPage ? new URL(startPage.url).pathname : '/' };
 
+  /**
+   * A simulated backend failure goes in FIRST, before the page opens: calls a
+   * page makes while loading are exactly the ones a later step would be too
+   * late to intercept.
+   */
+  if (intent.fault) {
+    const fromEndpoint = intent.fault.endpoint ? apiCheckFrom(` ${intent.fault.endpoint}`) : undefined;
+    if (!fromEndpoint?.request) {
+      exceptions.push({
+        kind: 'api_endpoint_unknown',
+        where: 'fault',
+        summary: `The fault "${intent.fault.description}" needs the API call to fail, and nothing states which one.`,
+        candidates: [],
+        asks: `Pick the call from network.json of a first run and set request.url_contains (and method) on the fail_requests step, replacing ${UNSET_ENDPOINT}.`,
+      });
+    }
+    actions.push({
+      action: 'fail_requests',
+      instruction: `Simulate: ${intent.fault.description}`,
+      request: fromEndpoint?.request ?? { url_contains: UNSET_ENDPOINT },
+      failure: intent.fault.kind,
+    });
+    if (!startPage) actions.push({ action: 'navigate', instruction: 'Open the application', url: '/' });
+  }
+
   if (startPage) {
     actions.push({
       action: 'navigate',
@@ -812,6 +896,33 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
 
   for (const step of splitCompoundSteps(intent.steps)) {
     const text = step.actor_intent;
+
+    if (step.simulate === 'session_expired') {
+      actions.push({ action: 'expire_session', instruction: text });
+      continue;
+    }
+
+    if (step.api) {
+      const call = apiCallFrom(step.api.endpoint);
+      if (!call) {
+        exceptions.push({
+          kind: 'unsupported_step',
+          where: step.id,
+          summary: `API step "${step.api.endpoint}" is not "METHOD /path".`,
+          asks: 'Write the endpoint as e.g. "POST /api/orders".',
+        });
+        continue;
+      }
+      actions.push({
+        action: 'api_request',
+        instruction: text,
+        method: call.method,
+        url: call.url,
+        ...(step.api.body ? { body: step.api.body } : {}),
+        ...(step.api.save?.length ? { save: step.api.save } : {}),
+      });
+      continue;
+    }
 
     const blocked = UNSUPPORTED.find((u) => u.test.test(text));
     if (blocked) {
@@ -1011,6 +1122,93 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
   const assertions: TestMission['assertions'] = [];
 
   for (const outcome of intent.outcomes) {
+    /**
+     * A layout outcome is about the whole page at this size, never one element:
+     * "the checkout page lays out soundly on a phone". Binding it to the best
+     * matching control would check that one control is visible, which is true
+     * of a page that scrolls sideways with its Pay button under a banner.
+     */
+    if (/\b(lays? out|layout|sideways|horizontal scroll|cut off|overlap|tap targets?)\b/i.test(outcome.statement)) {
+      assertions.push({
+        id: outcome.id.replace(/^O/, 'A'),
+        statement: outcome.statement,
+        check: { type: 'layout_sound' },
+        ...(outcome.critical === false ? { critical: false } : {}),
+      });
+      continue;
+    }
+
+    // "Looks as approved" is a screenshot against the person-approved baseline.
+    if (/\blooks? (as approved|the same|unchanged|as before)\b|\bvisually (unchanged|identical)\b/i.test(outcome.statement)) {
+      assertions.push({
+        id: outcome.id.replace(/^O/, 'A'),
+        statement: outcome.statement,
+        check: { type: 'looks_like_baseline' },
+        ...(outcome.critical === false ? { critical: false } : {}),
+      });
+      continue;
+    }
+
+    // "The page loads within 3 seconds" / "the main content appears within 2.5s".
+    const timing = outcome.statement.match(/\bwithin\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|secs?|seconds?)\b/i);
+    if (timing && /\b(load|loads|loaded|appear|appears|render|renders|display|displays|shown|visible|ready)\b/i.test(outcome.statement)) {
+      const ms = Math.round(Number(timing[1]) * (/^m/i.test(timing[2]!) ? 1 : 1000));
+      const content = /\b(appear|appears|render|renders|display|displays|shown|visible|content)\b/i.test(outcome.statement);
+      assertions.push({
+        id: outcome.id.replace(/^O/, 'A'),
+        statement: outcome.statement,
+        check: { type: 'performance_budget', budget: content ? { lcp_ms: ms } : { load_ms: ms } },
+        ...(outcome.critical === false ? { critical: false } : {}),
+      });
+      continue;
+    }
+
+    // Accessibility is a property of the page (or a named region), checked by axe.
+    if (/\b(accessib\w*|screen[- ]reader|wcag|contrast)\b/i.test(outcome.statement)) {
+      const region = regionHint(outcome.statement);
+      const landmark = region ? LANDMARK_FOR_REGION[region] : undefined;
+      assertions.push({
+        id: outcome.id.replace(/^O/, 'A'),
+        statement: outcome.statement,
+        check: {
+          type: 'accessible',
+          ...(landmark ? { target: { description: `the ${region} region`, role: landmark } } : {}),
+        },
+        ...(outcome.critical === false ? { critical: false } : {}),
+      });
+      continue;
+    }
+
+    if (outcome.observable === 'api_response') {
+      const check = apiCheckFrom(outcome.statement);
+      if (!check) {
+        exceptions.push({
+          kind: 'api_endpoint_unknown',
+          where: outcome.id,
+          summary: `"${outcome.statement}" is settled by an API call, and nothing states which one.`,
+          candidates: [],
+          asks: 'Which call carries this? Run the mission once, pick the method and URL from network.json in its evidence folder, and set check.request (and status or json_path) on this assertion.',
+        });
+        continue;
+      }
+      if (check.status === undefined) {
+        exceptions.push({
+          kind: 'approximated',
+          where: outcome.id,
+          summary: `"${outcome.statement}" is bound to the ${check.request!.method ?? ''} ${check.request!.url_contains} call, but only checks that it was made.`,
+          candidates: [],
+          asks: 'Which status code or response field proves the outcome? Add check.status, or check.json_path with check.value.',
+        });
+      }
+      assertions.push({
+        id: outcome.id.replace(/^O/, 'A'),
+        statement: outcome.statement,
+        check,
+        ...(outcome.critical === false ? { critical: false } : {}),
+      });
+      continue;
+    }
+
     let plan = CHECK_FOR[outcome.observable];
     /**
      * "exactly three products are listed" is a count, not a text comparison.
@@ -1022,6 +1220,47 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
       plan = { type: 'count', needsValue: false, approximate: false };
     }
     const candidates = findCandidates(outcome.statement, pages, []);
+
+    if (outcome.observable === 'ui_matches_api') {
+      const call = apiCheckFrom(outcome.statement);
+      const path = jsonPathFrom(outcome.statement);
+      if (!call?.request || !path) {
+        exceptions.push({
+          kind: call?.request ? 'value_unknown' : 'api_endpoint_unknown',
+          where: outcome.id,
+          summary: `"${outcome.statement}" compares the UI with an API field, but ${call?.request ? 'not which field' : 'not which call'}.`,
+          candidates: candidates.slice(0, 5).map(describeCandidate),
+          asks: 'Name the call and the field in the outcome, e.g. "the cart badge matches `items.length` from GET /api/cart", or set check.request and check.json_path here.',
+        });
+        continue;
+      }
+      const region = regionHint(outcome.statement);
+      const best = candidates[0];
+      const unambiguous = best && (candidates.length === 1 || (candidates[1] && candidates[1].score < best.score));
+      if (!unambiguous) {
+        exceptions.push({
+          kind: 'approximated',
+          where: outcome.id,
+          summary: `"${outcome.statement}" is compared against the page's ${region ?? 'main'} region, because no single element on the page clearly shows the value.`,
+          candidates: candidates.slice(0, 5).map(describeCandidate),
+          asks: 'Which element shows the value? A whole region also contains other numbers, so it can agree by accident.',
+        });
+      }
+      assertions.push({
+        id: outcome.id.replace(/^O/, 'A'),
+        statement: outcome.statement,
+        check: {
+          type: 'ui_matches_api',
+          target: unambiguous
+            ? targetFor(outcome.statement, best.control, region)
+            : { description: `the ${region ?? 'main'} region`, role: (region && LANDMARK_FOR_REGION[region]) || 'main' },
+          request: { ...(call.request.method ? { method: call.request.method } : {}), url_contains: call.request.url_contains },
+          json_path: path,
+        },
+        ...(outcome.critical === false ? { critical: false } : {}),
+      });
+      continue;
+    }
 
     const stated = plan.needsValue ? expectedValueFrom(outcome.statement, plan.type) : undefined;
 
@@ -1327,6 +1566,8 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
     role,
     auth: resolveAuth(role, ctx),
     environment: 'STAGE',
+    ...(intent.viewport ? { viewport: intent.viewport } : {}),
+    ...(intent.browser ? { browser: intent.browser } : {}),
     starting_context: {
       page: startPage ? new URL(startPage.url).pathname : '/',
       ...(startPage ? { url_hint: new URL(startPage.url).pathname } : {}),
@@ -1362,6 +1603,7 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
     rerun_policy: { replay_on_failure: true, on_divergence: 'INCONCLUSIVE' },
     binding: {
       intent_ref: intent.test_id,
+      intent_hash: hashIntent(intent),
       bound_at: new Date().toISOString(),
       bound_against: { build: capture.build, captured_at: capture.captured_at, url: startPage?.url ?? '' },
       confidence,

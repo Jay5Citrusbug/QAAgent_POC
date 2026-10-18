@@ -5,7 +5,7 @@
  *
  * The same report `npm run run-mission` writes automatically at the end of
  * every run. This regenerates it without touching the application — useful
- * after a human confirms or rejects a defect at Gate 2, since those decisions
+ * after a human confirms or rejects a defect at Gate 3, since those decisions
  * change what the report says.
  */
 import fs from 'node:fs';

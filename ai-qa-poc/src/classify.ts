@@ -11,9 +11,9 @@ import type { Confidence, ExecutionResult, FailureClassification, TestMission } 
  * In POC-1 this is a deterministic rule set rather than a model — there is no
  * LLM integration yet, and rules are auditable, free, and good enough for the
  * failure kinds the executor can distinguish. When a model does take this over,
- * it takes over *this function*, and the human review at Gate 2 does not change.
+ * it takes over *this function*, and the human review at Gate 3 does not change.
  *
- * Whatever this returns is a *proposal*. The human at Gate 2 decides.
+ * Whatever this returns is a *proposal*. The human at Gate 3 decides.
  */
 export interface Classification {
   failure_classification: FailureClassification | null;

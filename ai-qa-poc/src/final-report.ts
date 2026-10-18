@@ -3,8 +3,9 @@ import path from 'node:path';
 import { PATHS, rel } from './config.js';
 import { listDefects, renderDefect, type DefectCandidate } from './defect.js';
 import { listIntents, readIntentFile } from './intents.js';
-import { readMissionFile } from './validate.js';
+import { missionInFeature, readMissionFile } from './validate.js';
 import type { ExecutionResult, TestIntent, TestMission } from './types.js';
+import type { VerifyReport } from './verify.js';
 
 /**
  * The report a human reads once a run is over, and the only artifact that has
@@ -26,6 +27,8 @@ import type { ExecutionResult, TestIntent, TestMission } from './types.js';
 export interface FinalReportInput {
   feature?: string;
   results: ExecutionResult[];
+  /** Pre-execution verification for this run; its held tests explain themselves. */
+  verification?: VerifyReport;
 }
 
 function readJson<T>(file: string): T | undefined {
@@ -71,7 +74,7 @@ export function buildFinalReport(input: FinalReportInput): string {
   const intents = listIntents(PATHS.intentsApproved)
     .map(readIntentFile)
     .filter((i) => i.feature === feature) as TestIntent[];
-  const missions = collectMissions();
+  const missions = collectMissions().filter((m) => missionInFeature(m, input.feature));
   const defects = listDefects();
   const recon = latestReconciliation(feature);
 
@@ -94,8 +97,13 @@ export function buildFinalReport(input: FinalReportInput): string {
   L.push('');
   L.push('| | Count |');
   L.push('|---|---:|');
-  L.push(`| Intents approved at Gate 1 | ${intents.length} |`);
+  L.push(`| Intents approved at Gate 2 | ${intents.length} |`);
   L.push(`| Became executable missions | ${missions.length} |`);
+  if (input.verification) {
+    const envDown = input.verification.issues.some((v) => v.severity === 'block' && !v.test_id);
+    const heldCount = envDown ? neverRan.length : neverRan.filter((i) => input.verification!.held.includes(i.test_id)).length;
+    L.push(`| Held back by pre-execution verification | ${heldCount} |`);
+  }
   L.push(`| Actually executed | ${results.length} |`);
   L.push(`| **Never executed** | **${neverRan.length}** |`);
   L.push('');
@@ -109,8 +117,9 @@ export function buildFinalReport(input: FinalReportInput): string {
     );
     L.push('');
     L.push('These were approved, so a human agreed they were worth running. They did not');
-    L.push('run because binding them to the live page failed — that is a gap in the tooling');
-    L.push('or in how the intent was written, not evidence about the application.');
+    L.push('run because binding them to the live page failed, or because pre-execution');
+    L.push('verification held them back — a gap in the tooling, the environment or how the');
+    L.push('intent was written, not evidence about the application.');
     L.push('');
     L.push('| Test | Objective | Why it never ran |');
     L.push('|---|---|---|');
@@ -119,10 +128,16 @@ export function buildFinalReport(input: FinalReportInput): string {
         (u) => u.test_id === i.test_id,
       );
       const kinds = entry?.exceptions?.map((e) => e.kind) ?? [];
-      const why = kinds.length
-        ? `could not bind: ${Array.from(new Set(kinds)).join(', ')}`
-        : 'no mission was produced';
-      L.push(`| ${i.test_id} | ${escapePipes(i.test_objective)} | ${why} |`);
+      const heldBy = input.verification?.issues.find((v) => v.severity === 'block' && v.test_id === i.test_id);
+      const envBlock = input.verification?.issues.find((v) => v.severity === 'block' && !v.test_id);
+      const why = heldBy
+        ? `held by verification: ${heldBy.check} — ${heldBy.message}`
+        : envBlock
+          ? `held by verification: ${envBlock.check} — ${envBlock.message}`
+          : kinds.length
+            ? `could not bind: ${Array.from(new Set(kinds)).join(', ')}`
+            : 'no mission was produced';
+      L.push(`| ${i.test_id} | ${escapePipes(i.test_objective)} | ${escapePipes(why)} |`);
     }
     L.push('');
   }
@@ -163,7 +178,7 @@ export function buildFinalReport(input: FinalReportInput): string {
 
   L.push('## 3. Defects');
   L.push('');
-  L.push(`${defects.length} distinct candidate(s) — ${confirmed.length} confirmed, ${rejected.length} rejected, ${pending.length} awaiting Gate 2.`);
+  L.push(`${defects.length} distinct candidate(s) — ${confirmed.length} confirmed, ${rejected.length} rejected, ${pending.length} awaiting Gate 3.`);
   L.push('');
   L.push('Nothing here has been filed anywhere. Each is written to be pasted into a');
   L.push('tracker once a human confirms it is real.');
@@ -222,7 +237,7 @@ export function buildFinalReport(input: FinalReportInput): string {
   L.push('## 5. Outstanding');
   L.push('');
   if (pending.length > 0) {
-    L.push(`* **${pending.length} defect candidate(s) awaiting Gate 2.** Confirm or reject each:`);
+    L.push(`* **${pending.length} defect candidate(s) awaiting Gate 3.** Confirm or reject each:`);
     L.push('  ```');
     L.push(`  npm run defects -- --show <fingerprint>`);
     L.push(`  npm run defects -- --confirm <fingerprint> --by "<name>" --ticket <KEY>`);
