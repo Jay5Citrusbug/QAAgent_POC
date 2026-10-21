@@ -30,6 +30,8 @@ import { ledgerPath, loadLedger, renderLedger } from '../src/clarifications.js';
 import { thinkingStage } from '../src/analysis-gate.js';
 import { runAnalyse, runGenerate } from '../src/thinking-run.js';
 import { loadFeedback } from '../src/intent-approval.js';
+import { listDefects } from '../src/defect.js';
+import { featureOfDefect } from '../src/regression.js';
 import type { TestIntent } from '../src/types.js';
 import { buildCoverage, loadExclusions } from '../src/coverage.js';
 import { listIntents, readIntentFile } from '../src/intents.js';
@@ -156,6 +158,41 @@ const observed = readIfPresent(
 // starting from zero every time.
 const idPrefix = arg('prefix');
 const history = renderHistory(buildHistory(idPrefix));
+
+/**
+ * What Gate 3 taught us about this feature. Confirmed defects say where the
+ * bugs live: test deeper there (neighbouring inputs, the same flow from another
+ * role, the same rule elsewhere). Rejected ones say what the product does on
+ * purpose: never assert those again. Without this, every analysis starts as if
+ * no one had ever tested the feature.
+ */
+const lessons = (() => {
+  const mine = listDefects().filter((d) => featureOfDefect(d) === (featureName ?? 'default'));
+  const confirmed = mine.filter((d) => d.status === 'confirmed');
+  const rejected = mine.filter((d) => d.status === 'rejected');
+  if (!confirmed.length && !rejected.length) return '';
+  const strip = (t: string) => t.replace(/^\[[^\]]+\]\s*/, '');
+  return [
+    '# What review has taught us about this feature',
+    '',
+    ...(confirmed.length
+      ? [
+          `**Confirmed defects (${confirmed.length}).** Bugs cluster: design extra cases around each of these (the same rule with other inputs, the same flow for other roles and screen sizes, the neighbouring steps). Each already has a regression test; do not duplicate it.`,
+          '',
+          ...confirmed.map((d) => `* [${d.severity}] ${strip(d.title)}${d.human_review?.ticket ? ` (${String(d.human_review.ticket)})` : ''}`),
+          '',
+        ]
+      : []),
+    ...(rejected.length
+      ? [
+          `**Rejected as not a defect (${rejected.length}).** The product does these on purpose, or they were noise. Never write an outcome that asserts the opposite.`,
+          '',
+          ...rejected.map((d) => `* ${strip(d.title)}${d.human_review?.note ? ` — ${String(d.human_review.note)}` : ''}`),
+          '',
+        ]
+      : []),
+  ].join('\n');
+})();
 
 /**
  * [R3] Pick the example that matches the contract being asked for.
@@ -568,6 +605,9 @@ ${example}
 ${history ? `---
 
 ${history}
+` : ''}${lessons ? `---
+
+${lessons}
 ` : ''}
 ---
 

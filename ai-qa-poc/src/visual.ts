@@ -70,6 +70,21 @@ export function viewportKey(page: Page): string {
   return `${engine}-${v ? `${v.width}x${v.height}` : 'default'}`;
 }
 
+/**
+ * The baseline key for one page of a test: engine and size, plus the page.
+ * A flow through four pages keeps four baselines, one per page.
+ */
+export function visualKey(page: Page): string {
+  let path = '/';
+  try {
+    path = new URL(page.url()).pathname;
+  } catch {
+    /* about:blank and the like */
+  }
+  const slug = path.replace(/^\/+|\/+$/g, '').replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'home';
+  return `${viewportKey(page)}__${slug}`;
+}
+
 /** Screenshot the page as it stands, with the usual sources of noise removed. */
 export async function capturePage(page: Page): Promise<Buffer> {
   return page.screenshot({
@@ -84,9 +99,10 @@ export async function capturePage(page: Page): Promise<Buffer> {
  * Compare a screenshot with the approved baseline and keep the evidence.
  * `evidenceDir` gets current.png, and diff.png when something changed.
  */
-export function compareWithBaseline(shot: Buffer, testId: string, viewport: string, evidenceDir: string): VisualResult {
+export function compareWithBaseline(shot: Buffer, testId: string, viewport: string, evidenceDir: string, tag?: string): VisualResult {
   fs.mkdirSync(evidenceDir, { recursive: true });
-  const currentFile = path.join(evidenceDir, 'visual-current.png');
+  const suffix = tag ? `-${slug(tag)}` : '';
+  const currentFile = path.join(evidenceDir, `visual-current${suffix}.png`);
   fs.writeFileSync(currentFile, shot);
 
   const dir = baselineDir(testId, viewport);
@@ -132,7 +148,7 @@ export function compareWithBaseline(shot: Buffer, testId: string, viewport: stri
   if (ratio <= VISUAL_TOLERANCE && changed < VISUAL_MIN_PIXELS && !sizeChanged) {
     return { status: 'same', diff_ratio: ratio, changed_pixels: changed, baseline: rel(baselineFile), current: rel(currentFile) };
   }
-  const diffFile = path.join(evidenceDir, 'visual-diff.png');
+  const diffFile = path.join(evidenceDir, `visual-diff${suffix}.png`);
   fs.writeFileSync(diffFile, PNG.sync.write(diff));
   return {
     status: 'changed',

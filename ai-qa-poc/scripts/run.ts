@@ -22,11 +22,12 @@ import { buildProposals, writeHealing } from '../src/healing.js';
 import { fromExecution, fromFinding, listDefects, upsert, writeReport as writeDefectReport } from '../src/defect.js';
 import { writeDefectReview } from '../src/defect-review.js';
 import { listExplorations } from '../src/exploration.js';
+import { regressionTestIds } from '../src/regression.js';
 import { checkRequirementDrift, describeDrift } from '../src/requirement-hash.js';
 import { isApproved, missionInFeature, readMissionFile, validateMission, validateResult } from '../src/validate.js';
 import { analysisKey, analyzeExecution } from '../src/execution-ai.js';
 import { verify, writeVerification, type VerifyReport } from '../src/verify.js';
-import type { ExecutionResult } from '../src/types.js';
+import type { Example, ExecutionResult, TestMission } from '../src/types.js';
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -40,7 +41,10 @@ const featureName = flag('feature');
  * gets swallowed as its value, so `--headless EC-001` silently runs every
  * mission instead of the one asked for.
  */
-const BOOLEAN_FLAGS = new Set(['headless', 'headed', 'copy', 'stdout', 'skip-verify', 'fresh-state']);
+const BOOLEAN_FLAGS = new Set(['headless', 'headed', 'copy', 'stdout', 'skip-verify', 'fresh-state', 'no-explore', 'regression']);
+
+/** --regression: only the tests guarding confirmed defects (input/feature-<name>/regression.yaml). */
+const regressionOnly = process.argv.includes('--regression') ? regressionTestIds(featureName) : undefined;
 
 const positional = process.argv.slice(2).filter((a, i, arr) => {
   if (a.startsWith('--')) return false;
@@ -56,6 +60,7 @@ const files = fs.existsSync(PATHS.missionsApproved)
       .readdirSync(PATHS.missionsApproved)
       .filter((f) => f.endsWith('.json'))
       .filter((f) => !filter || path.basename(f, '.json') === filter)
+      .filter((f) => !regressionOnly || regressionOnly.has(path.basename(f, '.json')))
       .map((f) => path.join(PATHS.missionsApproved, f))
       // --feature selects the missions as well as the environment. Without
       // this, every approved mission of every feature was sent at the one URL.
@@ -167,12 +172,23 @@ for (const file of files) {
     console.warn('');
   }
 
-  const raw = await runMission(mission, { feature: featureName });
-  const result = applyClassification(raw, mission);
+  // A data-driven mission runs once per row: that row's data, its expected
+  // outcome, and only the checks that apply to it.
+  const rows: (Example | undefined)[] = mission.examples?.length ? mission.examples : [undefined];
+  for (const example of rows) {
+  const m: TestMission = example
+    ? {
+        ...mission,
+        expected_outcome: example.expected_outcome ?? mission.expected_outcome,
+        assertions: example.assertion_ids?.length ? mission.assertions.filter((a) => example.assertion_ids!.includes(a.id)) : mission.assertions,
+      }
+    : mission;
+  const raw = await runMission(m, { feature: featureName, ...(example ? { example } : {}) });
+  const result = applyClassification(raw, m);
   const aiKey = process.env.EXECUTION_AI === 'true' ? analysisKey(result) : undefined;
   if (aiKey) {
     const existing = aiByFinding.get(aiKey);
-    const analysis = existing ?? (await analyzeExecution(mission, result));
+    const analysis = existing ?? (await analyzeExecution(m, result));
     aiByFinding.set(aiKey, analysis);
     result.ai_analysis = analysis;
     if (analysis.status === 'failed') result.notes.push(`Execution AI unavailable: ${analysis.error}`);
@@ -197,9 +213,10 @@ for (const file of files) {
   fs.writeFileSync(resultFile, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
 
   console.log('');
-  console.log(`${result.test_id}: ${result.status}${result.failure_classification ? ` (${result.failure_classification}, confidence ${result.confidence})` : ''}`);
+  console.log(`${result.test_id}${result.example ? ` [${result.example}]` : ''}: ${result.status}${result.failure_classification ? ` (${result.failure_classification}, confidence ${result.confidence})` : ''}`);
   console.log(`  result: ${rel(resultFile)}`);
   console.log('');
+  }
 }
 
 /**

@@ -201,8 +201,19 @@ function checkIntents(feature: string, ledger: Ledger, issues: VerifyIssue[]) {
 
     // Traceability: the cited sentence must exist. A test case citing a
     // sentence the requirement does not contain is testing a rule nobody wrote.
-    const ref = intent.requirement_ref;
-    if (!ref) {
+    // A regression test traces to the defect it guards, which a person confirmed.
+    const guarded = intent.regression_for;
+    if (guarded) {
+      const record = path.join(PATHS.defects, `${guarded.fingerprint}.json`);
+      const status = fs.existsSync(record) ? (JSON.parse(fs.readFileSync(record, 'utf8')) as { status?: string }).status : undefined;
+      if (status !== 'confirmed') {
+        push('block', 'traceability', `Regression test for defect ${guarded.fingerprint}, which is ${status ? `"${status}"` : 'not on file'}, not confirmed.`);
+      }
+    }
+    const ref = guarded ? undefined : intent.requirement_ref;
+    if (guarded) {
+      // traced above
+    } else if (!ref) {
       push('block', 'traceability', 'No requirement_ref — nothing ties this test case to the requirement.', 'Add requirement_ref with the locator and the exact sentence.');
     } else {
       const file = localeFilePath(ref.locator);

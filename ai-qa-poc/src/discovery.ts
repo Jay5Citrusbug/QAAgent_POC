@@ -210,6 +210,25 @@ async function countWithin(locator: Locator, timeoutMs: number): Promise<number>
  * A cache hit that no longer matches records a miss and falls through; the
  * cache is an accelerator, never an authority.
  */
+/**
+ * The iframe a target lives in: by frame name, a fragment of its URL, or a CSS
+ * selector for the <iframe>. Payment forms, embedded maps and chat widgets all
+ * live in frames, and a search of the top page alone reports them missing.
+ */
+async function frameFor(page: Page, spec: string, target: TargetSpec, timeoutMs: number): Promise<Page> {
+  const named = page.frames().find((f) => f !== page.mainFrame() && (f.name() === spec || (spec.length > 3 && f.url().includes(spec))));
+  if (named) return named as unknown as Page;
+  const handle = await page
+    .locator(spec)
+    .first()
+    .elementHandle({ timeout: Math.min(timeoutMs, 5_000) })
+    .catch(() => null);
+  const frame = handle ? await handle.contentFrame() : null;
+  if (!frame) throw new TargetNotFoundError(target, [`iframe "${spec}" (by name, URL fragment or selector)`]);
+  // A Frame answers the same locator calls as a Page; discovery only uses those.
+  return frame as unknown as Page;
+}
+
 export async function resolveTarget(
   page: Page,
   rawTarget: TargetSpec,
@@ -232,6 +251,11 @@ export async function resolveTarget(
     intent?: string;
   },
 ): Promise<Resolved> {
+  if (rawTarget.frame) {
+    page = await frameFor(page, rawTarget.frame, rawTarget, opts.timeoutMs);
+    const { frame: _frame, ...rest } = rawTarget;
+    rawTarget = rest;
+  }
   // Interpolate here rather than at each call site: a mission that substitutes
   // the value it types but not the name it later looks for would spend its
   // whole budget hunting a literal "{run_id}".

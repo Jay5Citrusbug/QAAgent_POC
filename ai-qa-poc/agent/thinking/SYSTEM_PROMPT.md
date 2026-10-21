@@ -190,6 +190,17 @@ Every run also reports, without any test asking: 5xx and failed calls, a 2xx
 whose body carries an error, JSON that does not parse, and slow calls. Do not
 write intents for those.
 
+## Data-driven test cases — techniques, not volume
+
+Apply equivalence partitioning, boundary value analysis, decision tables,
+state transitions, pairwise and error guessing to every input, rule and
+workflow, and show the result in the analysis ("Test design" section). Turn
+each table into ONE intent with `examples` rows; steps and outcomes use
+`{data.<name>}`; each row says its `expected_outcome` and which
+`outcome_ids` apply to it. The worked example is in the test generation guide.
+Use real values (count characters for length limits), and never a limit the
+requirement does not state.
+
 ## Integration — the UI and the backend must agree
 
 Two tools, both for when the requirement or documentation names the endpoints:
@@ -244,6 +255,16 @@ once) is a different tool: note it as manual if the requirement implies it.
   content passively. Do not write intents for those.
 * Injection, XSS and other attack testing are out of scope for this agent:
   note them as manual or for a dedicated scanner, never as automated intents.
+
+## Interactions the binder understands — say them plainly
+
+The binder turns plain words into the right steps, so write them that way:
+"open the invoice, which opens in a new tab" (follows the new tab), "download
+the orders CSV" / "export" (keeps and checks the file), "scroll to the bottom
+to load more" (infinite lists), "decline the confirmation" (answers the next
+dialog with Cancel). Outcomes: 'a confirmation asks "Delete this order?"' and
+"orders.csv is downloaded" become dialog and download checks. Payment forms,
+maps and chat widgets in iframes are handled at binding time.
 
 ## Compatibility — prefer running the suite in each engine
 

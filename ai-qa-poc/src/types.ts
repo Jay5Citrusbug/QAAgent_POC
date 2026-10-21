@@ -56,7 +56,19 @@ export type ActionType =
   /** Call an API endpoint directly, with the browser session's cookies. */
   | 'api_request'
   /** End the session as a timeout would: cookies and web storage cleared. */
-  | 'expire_session';
+  | 'expire_session'
+  /** Move to another tab: value "new" (default: the latest one opened), "original", or a URL fragment. */
+  | 'switch_tab'
+  /** Close the current tab and go back to the original one. */
+  | 'close_tab'
+  /** Click the target and keep the file it downloads. */
+  | 'download'
+  /** Drag the target onto `to`. */
+  | 'drag'
+  /** Scroll the target into view, or the page to value "bottom" / "top" (infinite lists). */
+  | 'scroll'
+  /** Arm how the NEXT alert/confirm/prompt is answered: `dialog` accept (default) or dismiss; value = prompt text. */
+  | 'handle_dialog';
 
 export type CheckType =
   | 'visible'
@@ -104,7 +116,11 @@ export type CheckType =
   /** The page looks like its approved visual baseline (within VISUAL_TOLERANCE). */
   | 'looks_like_baseline'
   /** The page loaded within `budget` (TTFB, LCP, CLS, load). */
-  | 'performance_budget';
+  | 'performance_budget'
+  /** An alert/confirm/prompt appeared during the mission; value = text it must contain. */
+  | 'dialog_shown'
+  /** A file was downloaded and is not empty; value = text its name must contain. */
+  | 'file_downloaded';
 
 export type ResolutionStrategy =
   | 'cache'
@@ -138,6 +154,8 @@ export interface TargetSpec {
   nth?: number;
   /** Without this, several matches is an error — the agent never picks one silently. */
   expect_multiple?: boolean;
+  /** The element is inside an iframe: the frame's name, a fragment of its URL, or a CSS selector for the <iframe>. */
+  frame?: string;
 }
 
 export interface MissionAction {
@@ -162,6 +180,10 @@ export interface MissionAction {
   body?: unknown;
   /** api_request: keep response fields for later steps as {saved.<as>}. */
   save?: { json_path: string; as: string }[];
+  /** drag: where to drop the target. */
+  to?: TargetSpec;
+  /** handle_dialog: accept (default) or dismiss the next dialog. */
+  dialog?: 'accept' | 'dismiss';
 }
 
 export interface AssertionCheck {
@@ -204,6 +226,8 @@ export interface TestMission {
   priority: Priority;
   role: string;
   environment: 'STAGE';
+  /** Data-driven: the mission runs once per row (see Example). */
+  examples?: Example[];
   /** Browser engine for this mission (compatibility). The run's --browser overrides it. Default chromium. */
   browser?: 'chromium' | 'firefox' | 'webkit';
   /** Screen size for this mission: mobile, tablet, desktop, or exact. Default desktop. */
@@ -328,6 +352,10 @@ export interface ExecutionResult {
   test_objective?: string;
   environment?: string;
   role?: string;
+  /** The data-driven row this result is for. */
+  example?: string;
+  /** Every page the mission passed through, with what the page-level checks measured. */
+  pages?: { url: string; performance?: { url: string; ttfb_ms?: number; lcp_ms?: number; cls?: number; load_ms?: number; dom_content_loaded_ms?: number }; visual?: 'no_baseline' | 'same' | 'changed' }[];
   /** Page performance at the end of the mission (src/performance.ts). */
   performance?: { url: string; ttfb_ms?: number; lcp_ms?: number; cls?: number; load_ms?: number; dom_content_loaded_ms?: number };
   /** Engine and version the mission ran in, e.g. "Firefox 140.0". */
@@ -481,6 +509,24 @@ export interface IntentTestData {
   disposable?: boolean;
 }
 
+/**
+ * One row of a data-driven test: the values for {data.<name>}, and what must
+ * happen for them. A boundary table ("7 characters: refused, 8: accepted, 64:
+ * accepted, 65: refused") is one test case with four rows, not four test cases.
+ */
+export interface Example {
+  /** Short and specific: "min-1: 7 chars", "max: 64 chars", "empty". */
+  name: string;
+  data: Record<string, string>;
+  /** Overrides the test's expected_outcome for this row. */
+  expected_outcome?: 'succeeds' | 'blocked';
+  /** Intents: the outcome ids that apply to this row. Missions: the assertion ids. Omitted: all. */
+  outcome_ids?: string[];
+  assertion_ids?: string[];
+  /** Which technique and partition this row comes from, for the reviewer. */
+  note?: string;
+}
+
 export interface TestIntent {
   test_id: string;
   requirement_ref?: {
@@ -509,6 +555,10 @@ export interface TestIntent {
   };
   steps: IntentStep[];
   outcomes: IntentOutcome[];
+  /** Data-driven: one run per row; {data.<name>} in steps and outcomes. */
+  examples?: Example[];
+  /** A regression test guarding a defect confirmed at Gate 3; it traces to that defect, not to a requirement sentence. */
+  regression_for?: { fingerprint: string; title: string; ticket?: string };
   /**
    * A backend failure this test simulates — the error_handling case. Bound to
    * a `fail_requests` step that runs before the page opens.
@@ -565,7 +615,32 @@ export interface AppContext {
   };
   pages?: Record<string, { path: string; description?: string }>;
   modules?: { name: string; capabilities?: string[] }[];
-  roles?: { name: string; storage_state_ref?: string; description?: string }[];
+  roles?: {
+    name: string;
+    storage_state_ref?: string;
+    description?: string;
+    /** Renew the saved session when older than this (default 720 = 12 h). */
+    session_max_age_minutes?: number;
+    /** Opt-in scripted sign-in. Names ENV VARIABLES for the credentials, never values. */
+    login?: {
+      url: string;
+      username_env: string;
+      password_env: string;
+      username_label?: string;
+      password_label?: string;
+      submit?: string;
+      success_url_contains?: string;
+    };
+    /** Token for api_request steps: from an env variable, or where the app keeps it. */
+    api_auth?: {
+      header?: string;
+      /** Default "Bearer"; "" sends the raw token. */
+      scheme?: string;
+      token_env?: string;
+      /** "localStorage:<key>", "sessionStorage:<key>" or "cookie:<name>". */
+      from_storage?: string;
+    };
+  }[];
   /**
    * Who may open which page. `npm run access-matrix` tries every role against
    * every path and reports leaks (opened, should not) and refusals (refused,

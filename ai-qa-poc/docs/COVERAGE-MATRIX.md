@@ -7,7 +7,7 @@ ratings from `agent/thinking/COVERAGE_CHECKLIST.md`, so the two must agree.
 **✅ Yes**: tested automatically · **⚠️ Partial**: some of it automatically,
 the rest is written as manual test cases · **❌ No**: manual test cases only
 
-*Last updated: 2026-10-18, after Step 9 (exploration on every run). All planned steps done.*
+*Last updated: 2026-10-21, after Phase 2 (strength items 1–5).*
 
 ---
 
@@ -79,7 +79,81 @@ never change a test's PASS/FAIL.
 
 ---
 
+## 4. Phase 2: strength (more bugs per test, fewer tests that stop)
+
+| # | Capability | Effect | Status |
+|---|---|---|---|
+| 1 | Page-level checks on **every page a test visits**, not only the last | A 4-page checkout gets 4 pages checked (layout, accessibility, performance, visual); visual baselines per page | ✅ Done (2026-10-21) |
+| 2 | **New tabs, iframes, alert/confirm dialogs, downloads, drag-and-drop, scrolling** | Tests no longer stop at payment iframes, "open in new tab", delete confirmations, exports, infinite lists | ✅ Done (2026-10-21) |
+| 3 | **Data-driven test cases** + mandatory test design techniques (boundary values, equivalence classes, decision tables, state transitions, pairwise, error guessing) | One test case, many rows; each row its own verdict ("Fail (1 of 4 examples)") | ✅ Done (2026-10-21) |
+| 4 | **Automatic sign-in per role** (opt-in, credentials only in .env), expired-session detection and retry, **token (Bearer) auth** for API steps | Fewer BLOCKED runs; expired sessions never reported as product defects | ✅ Done (2026-10-21) |
+| 5 | **Confirmed defect → regression test**; review lessons fed back to the agents | Fixed bugs cannot silently return; analysis targets where bugs were found | ✅ Done (2026-10-21) |
+
+Still open, by priority: tests from an OpenAPI contract · test data setup and
+cleanup through API steps · localization (languages, RTL, formats) · email/SMS
+flows through a test inbox · keyboard-only accessibility · safe injection
+probes (needs explicit approval for STAGE) · CI/CD trigger · parallel runs ·
+regression selection from the build diff · flaky-test tracking.
+
+---
+
 ## Changelog
+
+**2026-10-21 · Phase 2, item 5: regression from confirmed defects**
+- Confirming a defect at Gate 3 either adds the test that caught it to
+  `input/feature-<name>/regression.yaml` (re-run with `--regression`), or, when
+  no test caught it, proposes a draft regression test case from the defect's
+  steps, numbered in the feature's series and categorised by the kind of bug.
+  It goes through Gate 2; verify accepts it only while its defect stays confirmed.
+- Both agents' prompts now carry "what review has taught us": confirmed defects
+  (test deeper there) and rejected ones (never assert those).
+- Verified: confirm → regression list → `--regression` ran only that test;
+  an accessibility finding → RG-003 proposed, schema-valid, verify-clean, and
+  blocked again once its defect was rejected.
+
+**2026-10-21 · Phase 2, item 4: sessions and token auth**
+- A role can opt in to scripted sign-in (`login:` in the app context naming env
+  variables; values only in .env). Missing or stale sessions are renewed before
+  the test; `npm run auth -- --role X --scripted` does it on demand.
+- A signed-in test that lands on a sign-in page is BLOCKED as an expired session
+  (environment), never a product defect; with scripted sign-in it re-signs in
+  and re-runs once.
+- `api_auth` on a role sends a token on api_request steps: from an env variable,
+  or where the app keeps it (`localStorage:`, `sessionStorage:`, `cookie:`).
+- Verified: first run signed in automatically and the Bearer-protected API
+  answered; a server-side expiry was renewed and re-run to PASS; without
+  credentials it was BLOCKED / ENVIRONMENT_FAILURE with the exact fix. No
+  password in any saved file.
+
+**2026-10-21 · Phase 2, item 3: data-driven test cases**
+- `examples` on a test case: one run per row, `{data.<name>}` in steps and
+  outcomes, a per-row expected outcome and the outcomes that apply to it.
+  Results carry the row name; the sheet shows the table and "Fail (k of n
+  examples)".
+- Test design techniques are mandatory in the guidance and the analysis
+  template ("Test design" section) and land as example rows.
+- Verified: a 4-row boundary test (7 / 8 / 64 / 65 characters) on a form that
+  never enforces the maximum failed on exactly the 65-character row. Found and
+  fixed: the binder filled password fields with a generic value instead of the
+  row's, and did not recognise "create the account" as a submit.
+
+**2026-10-21 · Phase 2, item 2: interactions**
+- New steps: `switch_tab`, `close_tab`, `download`, `drag`, `scroll`,
+  `handle_dialog`; `frame` on any target for iframes. New checks
+  `dialog_shown` and `file_downloaded` (fails on an empty file). Dialogs are
+  now accepted by default (Playwright's default silently cancelled every
+  "Are you sure?") and every message is recorded.
+- The binder turns "opens in a new tab", "download / export", "scroll to the
+  bottom", "decline the confirmation" (armed before the click) and dialog /
+  download outcomes into these steps and checks.
+- Verified on one page with all of them: 8 of 8 behaved correctly, including
+  catching an empty backup download.
+
+**2026-10-21 · Phase 2, item 1: every page checked**
+- Layout, accessibility, performance and visual checks run on each page a test
+  reaches (first arrival), and again on the page it ends on. Visual baselines
+  are per page. Results list every page with its measurements.
+- Verified: a 3-page flow with bugs only on the middle page: both found.
 
 **2026-10-18 · Step 9: exploration on every run**
 - `run-mission` / `execution-agent` now ends by exploring every page listed in

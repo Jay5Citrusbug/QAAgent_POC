@@ -67,6 +67,15 @@ export const CONTENT_COLUMNS = ['Module', 'FE/BE?', 'Test Case Title', 'Pre-Cond
 export function contentCells(intent: TestIntent): Record<(typeof CONTENT_COLUMNS)[number], string> {
   const pre = [`Actor: ${intent.actor}`, ...intent.preconditions];
   const data = (intent.test_data ?? []).map((d) => `${d.name}: ${d.description}`);
+  // A data-driven case lists its rows: what goes in, and what must happen.
+  if (intent.examples?.length) {
+    data.push(`Examples (${intent.examples.length} runs):`);
+    for (const e of intent.examples) {
+      const values = Object.entries(e.data).map(([k, v]) => `${k}="${v.length > 30 ? `${v.slice(0, 30)}… (${v.length} chars)` : v}"`).join(', ');
+      const outcome = (e.expected_outcome ?? intent.expected_outcome) === 'blocked' ? 'refused' : 'accepted';
+      data.push(`- ${e.name}: ${values} → ${outcome}${e.note ? ` [${e.note}]` : ''}`);
+    }
+  }
   const expected = intent.outcomes.map((o) => o.statement);
   if (intent.expected_outcome === 'blocked') expected.unshift('The system refuses the action.');
   return {
@@ -166,6 +175,24 @@ interface Context {
 
 export type CaseState = 'draft' | 'approved' | 'rejected';
 
+/** The newest result for each data-driven row of a test. */
+function latestPerExample(testId: string): Map<string, ExecutionResult> {
+  const dir = path.join(PATHS.runs, testId);
+  const out = new Map<string, ExecutionResult>();
+  if (!fs.existsSync(dir)) return out;
+  for (const run of fs.readdirSync(dir).filter((d) => !d.endsWith('-replay')).sort()) {
+    const file = path.join(dir, run, 'result.json');
+    if (!fs.existsSync(file)) continue;
+    try {
+      const r = JSON.parse(fs.readFileSync(file, 'utf8')) as ExecutionResult;
+      if (r.example) out.set(r.example, r); // later runs overwrite earlier ones
+    } catch {
+      /* unreadable result: skip */
+    }
+  }
+  return out;
+}
+
 function toRow(intent: TestIntent, state: CaseState, ctx: Context): Row {
   const approved = state === 'approved';
   const latest = approved ? latestResult(intent.test_id) : undefined;
@@ -180,7 +207,15 @@ function toRow(intent: TestIntent, state: CaseState, ctx: Context): Row {
       : ctx.rework.has(intent.test_id)
         ? 'Rework requested'
         : 'Draft - awaiting approval';
-  if (run) {
+  // Data-driven: one verdict per row; the case passes only if every row did.
+  const rows = approved && intent.examples?.length ? latestPerExample(intent.test_id) : undefined;
+  if (rows && rows.size) {
+    const failed = [...rows.entries()].filter(([, r]) => r.status !== 'PASS');
+    qaStatus = failed.length ? `Fail (${failed.length} of ${rows.size} examples)` : `Pass (${rows.size}/${rows.size} examples)`;
+    actual = failed.length
+      ? failed.map(([name, r]) => `${name}: ${STATUS_LABEL[r.status]}: ${r.actual.join('; ')}`).join('\n')
+      : `All ${rows.size} examples passed.`;
+  } else if (run) {
     qaStatus = STATUS_LABEL[run.status];
     actual = [
       run.actual.join('\n'),

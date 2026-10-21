@@ -2,8 +2,9 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { evaluateApiCheck, evaluateUiMatchesApi } from './api-checks.js';
 import { sweepLayout } from './layout.js';
 import { atLeast, runAxe, type Impact } from './a11y.js';
-import { capturePage, compareWithBaseline, describeChange, viewportKey } from './visual.js';
+import { capturePage, compareWithBaseline, describeChange, visualKey } from './visual.js';
 import { checkBudget, describeMetrics, readMetrics } from './performance.js';
+import type { RunState } from './actions.js';
 import type { NetworkLog } from './step-evidence.js';
 import { z } from 'zod';
 import { aiAvailable, askStructured } from './ai-client.js';
@@ -41,6 +42,8 @@ export interface AssertContext {
   network?: NetworkLog;
   /** For looks_like_baseline: whose baseline, and where to keep the diff. */
   visual?: { testId: string; evidenceDir: string };
+  /** Dialogs and downloads seen so far (dialog_shown, file_downloaded). */
+  state?: RunState;
 }
 
 // --- tolerant text comparison ------------------------------------------------
@@ -153,6 +156,29 @@ export async function evaluateAssertion(
       return await evaluateApiCheck(check, ctx.network, result, { timeoutMs: ctx.timeoutMs, expected });
     }
 
+    // A dialog appeared (alert / confirm / prompt), optionally with this text.
+    if (check.type === 'dialog_shown') {
+      const seen = ctx.state?.dialogs ?? [];
+      const hit = seen.find((d) => expected === undefined || d.message.toLowerCase().includes(expected.toLowerCase()));
+      result.observed = seen.length ? seen.map((d) => `${d.type}: "${d.message}"`).join('; ') : 'no dialog appeared';
+      result.passed = Boolean(hit);
+      if (!hit) result.error = expected === undefined ? 'No dialog appeared.' : `No dialog said "${expected}".`;
+      return result;
+    }
+
+    // A file was downloaded, is not empty, and (optionally) is named as expected.
+    if (check.type === 'file_downloaded') {
+      const files = ctx.state?.downloads ?? [];
+      const hit = files.find((f) => f.size > 0 && (expected === undefined || f.name.toLowerCase().includes(expected.toLowerCase())));
+      result.observed = files.length ? files.map((f) => `${f.name} (${f.size} bytes)`).join(', ') : 'nothing downloaded';
+      result.passed = Boolean(hit);
+      if (!hit) {
+        const empty = files.find((f) => f.size === 0);
+        result.error = empty ? `${empty.name} downloaded but is empty.` : expected === undefined ? 'Nothing was downloaded.' : `No downloaded file is named like "${expected}".`;
+      }
+      return result;
+    }
+
     // Performance budget for the page as it last loaded.
     if (check.type === 'performance_budget') {
       if (!check.budget || !Object.keys(check.budget).length) {
@@ -180,7 +206,8 @@ export async function evaluateAssertion(
         result.error = 'Visual comparison is not available in this run.';
         return result;
       }
-      const vr = compareWithBaseline(await capturePage(ctx.page), ctx.visual.testId, viewportKey(ctx.page), ctx.visual.evidenceDir);
+      const key = visualKey(ctx.page);
+      const vr = compareWithBaseline(await capturePage(ctx.page), ctx.visual.testId, key, ctx.visual.evidenceDir, `check-${key}`);
       if (vr.status === 'no_baseline') {
         result.evaluable = false;
         result.observed = 'no approved baseline yet';

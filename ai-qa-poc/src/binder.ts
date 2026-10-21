@@ -145,6 +145,10 @@ function contentWords(text: string): string[] {
  * the fields entirely.
  */
 const VERBS: { test: RegExp; action: ActionType; wants: string[] }[] = [
+  // A download is a click whose result is a file; binding it as a plain click
+  // would never notice that the file was empty or never came.
+  { test: /\b(download|export)\b/i, action: 'download', wants: ['button', 'link'] },
+
   // Arriving somewhere. Matched first because "go to the cart and add an item"
   // is a navigation followed by an action, not one ambiguous blob.
   { test: /\b(arrive at|land on|visit|navigate)\b/i, action: 'navigate', wants: [] },
@@ -184,6 +188,8 @@ const VERBS: { test: RegExp; action: ActionType; wants: string[] }[] = [
   // the no_candidate exceptions traced back to this single ordering.
   { test: /\b(click|press|tap|activate|follow)\b/i, action: 'click', wants: ['button', 'link'] },
   { test: /\b(submit|send|confirm|save|place the order)\b/i, action: 'click', wants: ['button'] },
+  // Finishing a form by what it makes: "create the account", "register", "sign up".
+  { test: /\b(create|register|sign up|join|subscribe)\b/i, action: 'click', wants: ['button'] },
 
   /**
    * Words that name a destination as readily as an action.
@@ -894,8 +900,42 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
     });
   }
 
+  // A data-driven intent: a row expected to be refused lets the final step fail.
+  const anyRowRefused = (intent.examples ?? []).some((e) => e.expected_outcome === 'blocked');
+
+  // Steps that belong right AFTER the action bound for the current step.
+  let pendingAfter: TestMission['actions'] = [];
   for (const step of splitCompoundSteps(intent.steps)) {
     const text = step.actor_intent;
+    // "Enter {data.password} as the password": the row's value is what gets typed.
+    const dataToken = text.match(/\{data\.[A-Za-z0-9_]+\}/)?.[0];
+    actions.push(...pendingAfter);
+    pendingAfter = [];
+
+    // "...opens in a new tab / window / pop-up": follow it there afterwards.
+    if (/\b(new (tab|window)|pop-?up)\b/i.test(text)) {
+      pendingAfter.push({ action: 'switch_tab', instruction: 'Continue in the tab that opened', value: 'new' });
+    }
+
+    // Scrolling the page itself, e.g. to load more of an infinite list.
+    if (/\bscroll(s|ing)?\b.*\b(bottom|end|down|load more)\b|\binfinite (scroll|list)\b/i.test(text)) {
+      actions.push({ action: 'scroll', instruction: text, value: 'bottom' });
+      continue;
+    }
+
+    // Declining a confirmation happens DURING the click before it, so the answer
+    // has to be armed before that click, not after.
+    if (/\b(cancel|dismiss|decline|reject)\b.*\b(confirmation|dialog|prompt|alert)\b/i.test(text)) {
+      const lastClick = [...actions].reverse().findIndex((a) => a.action === 'click');
+      const at = lastClick === -1 ? actions.length : actions.length - 1 - lastClick;
+      actions.splice(at, 0, { action: 'handle_dialog', instruction: text, dialog: 'dismiss' });
+      continue;
+    }
+    if (/\b(confirm|accept|ok)\b.*\b(confirmation|dialog|prompt|alert)\b/i.test(text)) {
+      // Accepting is the default answer; nothing to bind, but say so in the mission.
+      actions.push({ action: 'handle_dialog', instruction: text, dialog: 'accept' });
+      continue;
+    }
 
     if (step.simulate === 'session_expired') {
       actions.push({ action: 'expire_session', instruction: text });
@@ -1026,9 +1066,10 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
             role: named.control.role,
             name: named.control.name,
           },
-          value: valueFor(named.purpose, invalid),
+          // A data-driven row's value wins over the generic one for this kind of field.
+          value: dataToken ?? valueFor(named.purpose, invalid),
         });
-        if (invalid) {
+        if (invalid && !dataToken) {
           exceptions.push({
             kind: 'approximated',
             where: step.id,
@@ -1101,13 +1142,13 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
             expect_multiple: true,
           }
         : targetFor(text, best.control, region),
-      ...(verb.action === 'fill' || verb.action === 'type' ? { value: '{run_id}' } : {}),
-      ...(intent.expected_outcome === 'blocked' && step.id === intent.steps[intent.steps.length - 1]?.id
+      ...(verb.action === 'fill' || verb.action === 'type' ? { value: dataToken ?? '{run_id}' } : {}),
+      ...((intent.expected_outcome === 'blocked' || anyRowRefused) && step.id === intent.steps[intent.steps.length - 1]?.id
         ? { tolerate_failure: true }
         : {}),
     });
 
-    if (verb.action === 'fill') {
+    if (verb.action === 'fill' && !dataToken) {
       exceptions.push({
         kind: 'value_unknown',
         where: step.id,
@@ -1116,6 +1157,8 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
       });
     }
   }
+
+  actions.push(...pendingAfter);
 
   // --- Outcomes → assertions -----------------------------------------------
 
@@ -1133,6 +1176,32 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
         id: outcome.id.replace(/^O/, 'A'),
         statement: outcome.statement,
         check: { type: 'layout_sound' },
+        ...(outcome.critical === false ? { critical: false } : {}),
+      });
+      continue;
+    }
+
+    // A dialog the application raised: "a confirmation asks 'Delete this order?'".
+    if (/\b(dialog|confirmation|alert|prompt)\b/i.test(outcome.statement) && /\b(asks?|says?|shows?|appears?|warns?|is shown|pops? up)\b/i.test(outcome.statement)) {
+      const said = outcome.statement.match(/["“']([^"”']{3,})["”']/)?.[1];
+      assertions.push({
+        id: outcome.id.replace(/^O/, 'A'),
+        statement: outcome.statement,
+        check: { type: 'dialog_shown', ...(said ? { value: said } : {}) },
+        ...(outcome.critical === false ? { critical: false } : {}),
+      });
+      continue;
+    }
+
+    // A file arrives: "the invoice PDF is downloaded", "orders.csv is downloaded".
+    if (/\b(download(ed|s)?|exported)\b/i.test(outcome.statement) && /\b(file|pdf|csv|xlsx?|zip|invoice|report|export)\b/i.test(outcome.statement)) {
+      const name =
+        outcome.statement.match(/\b([\w-]+\.(pdf|csv|xlsx?|zip|txt|json|docx?))\b/i)?.[1] ??
+        outcome.statement.match(/\b(pdf|csv|xlsx?|zip)\b/i)?.[1]?.toLowerCase();
+      assertions.push({
+        id: outcome.id.replace(/^O/, 'A'),
+        statement: outcome.statement,
+        check: { type: 'file_downloaded', ...(name ? { value: name } : {}) },
         ...(outcome.critical === false ? { critical: false } : {}),
       });
       continue;
@@ -1568,6 +1637,15 @@ export function bindIntent(intent: TestIntent, capture: Capture, ctx: AppContext
     environment: 'STAGE',
     ...(intent.viewport ? { viewport: intent.viewport } : {}),
     ...(intent.browser ? { browser: intent.browser } : {}),
+    ...(intent.examples?.length
+      ? {
+          examples: intent.examples.map((e) => {
+            const { outcome_ids, ...row } = e;
+            const ids = (outcome_ids ?? []).map((o) => o.replace(/^O/, 'A')).filter((a) => assertions.some((x) => x.id === a));
+            return { ...row, ...(ids.length ? { assertion_ids: ids } : {}) };
+          }),
+        }
+      : {}),
     starting_context: {
       page: startPage ? new URL(startPage.url).pathname : '/',
       ...(startPage ? { url_hint: new URL(startPage.url).pathname } : {}),

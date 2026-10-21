@@ -40,6 +40,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
 import { loadAppContext, PATHS, rel } from '../src/config.js';
+import { scriptedLogin } from '../src/auto-login.js';
 
 /**
  * A flag's value, or undefined when it has none.
@@ -185,8 +186,31 @@ if (has('forget')) {
 // --- Record -----------------------------------------------------------------
 
 const role = arg('role');
+
+/**
+ * --scripted: sign in with the role's `login:` configuration and credentials
+ * from the environment, instead of by hand. Same session file either way; the
+ * executor also does this on its own when a session is missing or stale.
+ */
+if (role && has('scripted')) {
+  const ctx = loadAppContext(featureName);
+  const declared = (ctx.roles ?? []).find((r) => r.name.toLowerCase() === role.toLowerCase());
+  if (!declared?.login) {
+    console.error(`Role "${role}" has no login: section in the application context. Sign in by hand: npm run auth -- --role ${role}`);
+    process.exit(1);
+  }
+  try {
+    await scriptedLogin(ctx, declared, declared.storage_state_ref ?? declared.name.toLowerCase(), (line) => console.log(line));
+    process.exit(0);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+}
+
 if (!role) {
   console.error('Usage: npm run auth -- --role <role> [--feature <feature>] [--url <sign-in url>]');
+  console.error('       npm run auth -- --role <role> --feature <feature> --scripted   # sign in from .env credentials');
   console.error('       npm run auth -- --list');
   console.error('       npm run auth -- --check --feature <feature>');
   process.exit(1);

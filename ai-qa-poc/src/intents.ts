@@ -114,6 +114,22 @@ const REFUSAL_OBSERVABLES = new Set(['message_shown', 'access_denied', 'element_
 export function lintIntent(i: TestIntent, ledger?: Ledger): string[] {
   const warnings: string[] = [];
 
+  // Data-driven: every {data.x} used must exist in every row, and rows must differ.
+  const used = new Set(
+    [...i.steps.map((s) => s.actor_intent), ...i.outcomes.map((o) => o.statement)].flatMap((t) => [...t.matchAll(/\{data\.([A-Za-z0-9_]+)\}/g)].map((m) => m[1]!)),
+  );
+  if (used.size && !i.examples?.length) warnings.push(`Uses {data.${[...used][0]}} but has no examples to fill it.`);
+  for (const e of i.examples ?? []) {
+    const missing = [...used].filter((k) => !(k in e.data));
+    if (missing.length) warnings.push(`Example "${e.name}" has no value for ${missing.map((k) => `{data.${k}}`).join(', ')}.`);
+  }
+  const seen = new Set<string>();
+  for (const e of i.examples ?? []) {
+    const key = JSON.stringify(e.data);
+    if (seen.has(key)) warnings.push(`Example "${e.name}" repeats another row's data: it tests nothing new.`);
+    seen.add(key);
+  }
+
   if (!i.requirement_ref) {
     warnings.push(
       'No requirement_ref: results from this intent will not trace back to a requirement (success criterion 8).',

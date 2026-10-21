@@ -32,7 +32,8 @@ Work from inside `ai-qa-poc/`. Follow the gate rules in the root `CLAUDE.md`.
 5. **Run in the background:** `npm run execution-agent -- --feature <f>`
    (or specific ids) with `run_in_background`. Options when asked:
    `--headless`, `--viewport mobile|tablet|desktop`, `--browser firefox|webkit`,
-   `--no-explore` (skip the exploration that runs at the end).
+   `--no-explore` (skip the exploration that runs at the end), `--regression` (only the
+   tests guarding confirmed defects).
    For access control: `npm run access-matrix -- --feature <f>` (rules under
    `access:` in the app context).
 
@@ -51,6 +52,9 @@ Work from inside `ai-qa-poc/`. Follow the gate rules in the root `CLAUDE.md`.
    * confirm: `npm run defects -- --confirm <fp> --by "<name>" --note "<their note>"`
    * reject: `npm run defects -- --reject <fp> --by "<name>" --note "<why>"`
    * after **they** post it to Jira: `npm run defects -- --confirm <fp> --by "<name>" --ticket <KEY>`
+   Confirming makes the defect a permanent test (regression list, or a proposed
+   draft regression test case): relay what the command says, and route a
+   proposed test case to `/test-cases` for Gate 2.
    Never post to Jira yourself. Point them to the Copy buttons on the review page.
 
 8. Healing proposals (`reports/HEALING-<f>.md`) are applied only on the person's

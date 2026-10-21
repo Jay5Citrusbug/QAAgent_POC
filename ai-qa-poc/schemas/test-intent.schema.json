@@ -91,6 +91,36 @@
       "description": "State that must hold before step 1, in business language: 'the account exists and is locked'. An unmet precondition is BLOCKED, never FAIL."
     },
 
+    "regression_for": {
+      "type": "object",
+      "description": "A regression test guarding a defect a person confirmed at Gate 3. It traces to that defect record (requirement_ref.locator points at it) instead of a requirement sentence.",
+      "additionalProperties": false,
+      "required": ["fingerprint", "title"],
+      "properties": {
+        "fingerprint": { "type": "string" },
+        "title": { "type": "string" },
+        "ticket": { "type": "string" }
+      }
+    },
+
+    "examples": {
+      "type": "array",
+      "minItems": 2,
+      "description": "Data-driven: the test runs once per row. {data.<name>} in the steps and outcomes is filled from the row. Use for boundary values, equivalence classes and decision-table rows; one test case, many rows.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "data"],
+        "properties": {
+          "name": { "type": "string", "description": "Short and specific: min-1 (7 chars), max (64 chars), empty." },
+          "data": { "type": "object", "additionalProperties": { "type": "string" } },
+          "expected_outcome": { "type": "string", "enum": ["succeeds", "blocked"], "description": "Overrides the test's expected_outcome for this row." },
+          "outcome_ids": { "type": "array", "items": { "type": "string" }, "description": "The outcome ids that apply to this row (e.g. O1 for success, O2 for the error). Omitted: all." },
+          "note": { "type": "string", "description": "Technique and partition, e.g. BVA: just below minimum." }
+        }
+      }
+    },
+
     "fault": {
       "type": "object",
       "description": "error_handling: a backend failure this test simulates before the actor acts. Bound to a fail_requests step. The outcomes then say what the user must be told, and that nothing was lost or double-submitted.",

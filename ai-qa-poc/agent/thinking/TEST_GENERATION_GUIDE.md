@@ -36,6 +36,43 @@ For every user story, acceptance criterion, and named business rule:
    or server-failure behavior when that risk matters but the executor cannot
    verify it.
 
+## Test design techniques: mandatory, and shown
+
+Coverage comes from technique, not from volume. For every input, rule and
+workflow in the requirement, apply the technique that fits and record it in
+the analysis (section "Test design"):
+
+| Technique | Use it for | What it produces |
+|---|---|---|
+| **Equivalence partitioning** | Any input with valid and invalid classes (email, quantity, country) | One row per class: a valid representative and each invalid class |
+| **Boundary value analysis** | Any stated limit (length 8–64, quantity 1–10, date ranges, prices) | min-1, min, max, max+1 (and min+1 / max-1 where cheap) |
+| **Decision table** | Rules that combine conditions (discount if member AND total > 100) | One row per combination that changes the outcome |
+| **State transition** | Anything with statuses (order: placed → paid → shipped → cancelled) | Each valid transition, and the invalid ones that must be refused |
+| **Pairwise** | Several independent options (size × colour × delivery) | The smallest set of rows covering every pair, not every combination |
+| **Error guessing** | Where bugs usually live | Empty, whitespace only, very long, special characters, duplicates, double submit, back button, refresh mid-flow |
+
+**Write these as ONE data-driven intent with `examples`, not as many intents.**
+"Password must be 8 to 64 characters" is one intent with four rows:
+
+```json
+"steps": [{ "id": "S1", "actor_intent": "Enter {data.password} as the new password and submit" }],
+"outcomes": [
+  { "id": "O1", "statement": "The password is accepted", "observable": "message_shown" },
+  { "id": "O2", "statement": "The user is told the password must be 8 to 64 characters", "observable": "message_shown" }
+],
+"examples": [
+  { "name": "min-1 (7 chars)",  "data": { "password": "Abcdef1" },  "expected_outcome": "blocked",  "outcome_ids": ["O2"], "note": "BVA: below minimum" },
+  { "name": "min (8 chars)",    "data": { "password": "Abcdef12" }, "expected_outcome": "succeeds", "outcome_ids": ["O1"], "note": "BVA: minimum" },
+  { "name": "max (64 chars)",   "data": { "password": "<64 chars>" }, "expected_outcome": "succeeds", "outcome_ids": ["O1"], "note": "BVA: maximum" },
+  { "name": "max+1 (65 chars)", "data": { "password": "<65 chars>" }, "expected_outcome": "blocked",  "outcome_ids": ["O2"], "note": "BVA: above maximum" }
+]
+```
+
+Write real values, never placeholders: count the characters. Each row runs
+separately, with its own verdict, and the sheet shows "Fail (1 of 4 examples)"
+when one boundary is wrong. Never invent a limit the requirement does not
+state: a missing limit is a question for the analysis.
+
 ## Depth rules
 
 - Split a large flow into bounded missions with one objective each. A complete

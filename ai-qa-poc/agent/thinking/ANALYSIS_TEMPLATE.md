@@ -52,6 +52,16 @@ judgement is most of the value.
 |---|---|---|---|
 | | positive / negative / boundary / permission | SM-00x | |
 
+## 4b. Test design: techniques applied
+
+For every input, rule and workflow: the technique, and the partitions,
+boundaries or combinations it produced. A reviewer approves THIS at Gate 1;
+the data-driven examples in the test cases come straight from it.
+
+| Input / rule / workflow | Technique | Partitions / boundaries / combinations | Test case |
+|---|---|---|---|
+| Password length 8–64 | Boundary values | 7 ✗ · 8 ✓ · 64 ✓ · 65 ✗ | XX-00n (4 examples) |
+
 ## 5. Regression impact
 
 What else might this change break?

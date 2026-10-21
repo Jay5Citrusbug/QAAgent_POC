@@ -69,7 +69,7 @@ export function lintMission(m: TestMission): string[] {
       }
       continue;
     }
-    if (a.check.type === 'api_no_errors' || a.check.type === 'layout_sound' || a.check.type === 'accessible' || a.check.type === 'looks_like_baseline' || a.check.type === 'performance_budget') continue;
+    if (a.check.type === 'api_no_errors' || a.check.type === 'layout_sound' || a.check.type === 'accessible' || a.check.type === 'looks_like_baseline' || a.check.type === 'performance_budget' || a.check.type === 'dialog_shown' || a.check.type === 'file_downloaded') continue;
     if (a.check.type === 'ui_matches_api' && (!a.check.request?.url_contains || !a.check.json_path)) {
       warnings.push(`Assertion ${a.id}: ui_matches_api needs request.url_contains and json_path — which call and which field to compare with.`);
     }
@@ -195,7 +195,8 @@ export function lintMission(m: TestMission): string[] {
       const savedBefore = new Set(m.actions.slice(0, i).flatMap((x) => x.save?.map((sv) => sv.as) ?? []));
       for (const name of used) if (!savedBefore.has(name!)) warnings.push(`Action ${i + 1} (${action.action}): uses {saved.${name}}, which no earlier step saves.`);
     }
-    const needsTarget: string[] = ['click', 'fill', 'type', 'select', 'check', 'upload', 'hover'];
+    if (action.action === 'drag' && !action.to) warnings.push(`Action ${i + 1} (drag): needs "to", where to drop it.`);
+    const needsTarget: string[] = ['click', 'fill', 'type', 'select', 'check', 'upload', 'hover', 'download', 'drag'];
     if (needsTarget.includes(action.action) && !action.target) {
       warnings.push(`Action ${i + 1} (${action.action}): needs a target.`);
     }

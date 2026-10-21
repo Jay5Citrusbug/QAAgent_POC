@@ -14,6 +14,10 @@ import type { TargetSpec } from './types.js';
 export function interpolate(value: string | undefined, runId: string): string | undefined {
   if (value === undefined) return undefined;
   let out = value.replaceAll('{run_id}', runId);
+  const data = DATA.get(runId);
+  if (data && out.includes('{data.')) {
+    out = out.replace(/\{data\.([A-Za-z0-9_]+)\}/g, (whole, name: string) => data.get(name) ?? whole);
+  }
   const saved = SAVED.get(runId);
   if (saved && out.includes('{saved.')) {
     out = out.replace(/\{saved\.([A-Za-z0-9_]+)\}/g, (whole, name: string) => saved.get(name) ?? whole);
@@ -37,6 +41,17 @@ export function saveValue(runId: string, name: string, value: string): void {
 
 export function forgetSaved(runId: string): void {
   SAVED.delete(runId);
+  DATA.delete(runId);
+}
+
+/**
+ * The row of a data-driven test this run is executing: {data.<name>} in any
+ * value, URL, target name or expected text. Set before the run, per run id.
+ */
+const DATA = new Map<string, Map<string, string>>();
+
+export function setData(runId: string, values: Record<string, string>): void {
+  DATA.set(runId, new Map(Object.entries(values).map(([k, v]) => [k, String(v)])));
 }
 
 /** Placeholders still unfilled after interpolation: a step used a value nobody saved. */

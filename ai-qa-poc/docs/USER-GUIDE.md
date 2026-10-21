@@ -308,6 +308,23 @@ The fingerprint is shown on each card and in `npm run defects -- --list`.
 
 ---
 
+### Worth knowing
+
+* **Data-driven test cases.** A rule like "password 8–64 characters" becomes
+  ONE test case with rows (7 ✗, 8 ✓, 64 ✓, 65 ✗). Each row runs separately; the
+  sheet shows the rows in Test Data and "Fail (1 of 4 examples)" in QA Status.
+* **Automatic sign-in (optional).** Add `login:` to a role in the app context,
+  naming env variables (`username_env: STAGE_CUSTOMER_USER`); put the values in
+  `.env` only. Missing, stale or expired sessions are then renewed by
+  themselves. SSO/MFA roles keep using `npm run auth` by hand.
+* **Token-protected APIs.** `api_auth: { from_storage: "localStorage:access_token" }`
+  (or `token_env`) on a role sends the token on API steps.
+* **Confirmed defects become tests.** Confirming a defect adds the test that
+  caught it to the regression list, or proposes a draft regression test case
+  for Gate 2 when nothing caught it.
+* **What runs on every page a test visits:** layout, accessibility, speed,
+  visual comparison, security and API checks, not just the last page.
+
 ## 4. Command cheat sheet
 
 | I want to… | Command |
@@ -330,6 +347,8 @@ The fingerprint is shown on each card and in `npm run defects -- --list`.
 | Apply healing proposals | `npm run heal -- --feature X --apply H-1 --by "me"` |
 | Gate 3 | `npm run defects -- --confirm/--reject <fp> --by "me"` |
 | Access control: every role × every page | `npm run access-matrix -- --feature X` (rules under `access:` in the app context) |
+| Re-run only the tests guarding confirmed defects | `npm run execution-agent -- --feature X --regression` |
+| Sign a role in from .env credentials (opt-in) | `npm run auth -- --role Customer --feature X --scripted` |
 | Visual baselines: list / approve | `npm run visual -- --list` · `npm run visual -- --approve XX-001 --by "me"` |
 | Rebuild the defect review page | `npm run defects -- --review` |
 | Team metrics (review time, false-defect rate) | `npm run metrics` |

@@ -50,6 +50,24 @@
     "role": { "type": "string", "description": "Must exist in knowledge/application-context.yaml roles." },
     "environment": { "type": "string", "enum": ["STAGE"], "description": "POC-1 is STAGE only. Deliberately narrow." },
 
+    "examples": {
+      "type": "array",
+      "minItems": 2,
+      "description": "Data-driven: the test runs once per row. {data.<name>} in the steps and outcomes is filled from the row. Use for boundary values, equivalence classes and decision-table rows; one test case, many rows.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "data"],
+        "properties": {
+          "name": { "type": "string", "description": "Short and specific: min-1 (7 chars), max (64 chars), empty." },
+          "data": { "type": "object", "additionalProperties": { "type": "string" } },
+          "expected_outcome": { "type": "string", "enum": ["succeeds", "blocked"], "description": "Overrides the test's expected_outcome for this row." },
+          "assertion_ids": { "type": "array", "items": { "type": "string" }, "description": "The assertion ids checked for this row. Omitted: all." },
+          "note": { "type": "string", "description": "Technique and partition, e.g. BVA: just below minimum." }
+        }
+      }
+    },
+
     "browser": { "type": "string", "enum": ["chromium", "firefox", "webkit"], "description": "Browser engine (webkit is Safari's). The run's --browser overrides it. Default chromium." },
 
     "viewport": {
@@ -179,7 +197,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["navigate", "click", "fill", "type", "select", "check", "upload", "hover", "press", "wait_for_state", "verify", "fail_requests", "api_request", "expire_session"]
+            "enum": ["navigate", "click", "fill", "type", "select", "check", "upload", "hover", "press", "wait_for_state", "verify", "fail_requests", "api_request", "expire_session", "switch_tab", "close_tab", "download", "drag", "scroll", "handle_dialog"]
           },
           "instruction": { "type": "string", "description": "The human sentence describing this step." },
           "target": { "$ref": "#/$defs/target" },
@@ -211,6 +229,8 @@
           "delay_ms": { "type": "integer", "minimum": 0, "maximum": 60000, "description": "fail_requests only: hold time for timeout (default 15000) or slow (default 5000)." },
           "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "description": "api_request only. url is the path, relative to base_url." },
           "body": { "description": "api_request only: JSON body. Strings inside support {run_id} and {saved.<name>}." },
+          "to": { "$ref": "#/$defs/target", "description": "drag only: where to drop the target." },
+          "dialog": { "type": "string", "enum": ["accept", "dismiss"], "description": "handle_dialog only: how to answer the next alert/confirm/prompt (default accept). value = prompt text." },
           "save": {
             "type": "array",
             "description": "api_request only: response fields to keep for later steps, used as {saved.<as>}.",
@@ -247,7 +267,7 @@
             "properties": {
               "type": {
                 "type": "string",
-                "enum": ["visible", "not_visible", "text_equals", "text_contains", "enabled", "disabled", "count", "url_contains", "attribute_equals", "image_loaded", "has_accessible_name", "all_images_loaded", "all_controls_have_accessible_name", "api_response", "api_no_errors", "ui_matches_api", "layout_sound", "accessible", "looks_like_baseline", "performance_budget"]
+                "enum": ["visible", "not_visible", "text_equals", "text_contains", "enabled", "disabled", "count", "url_contains", "attribute_equals", "image_loaded", "has_accessible_name", "all_images_loaded", "all_controls_have_accessible_name", "api_response", "api_no_errors", "ui_matches_api", "layout_sound", "accessible", "looks_like_baseline", "performance_budget", "dialog_shown", "file_downloaded"]
               },
               "target": { "$ref": "#/$defs/target" },
               "value": { "type": ["string", "number"], "description": "Expected value, where the check type needs one. Supports {run_id} substitution." },
@@ -432,7 +452,8 @@
         "selector": { "type": "string", "description": "Explicit CSS/XPath escape hatch. Allowed only when a semantic descriptor genuinely cannot express the element, and it is recorded as a low-confidence strategy." },
         "within": { "$ref": "#/$defs/target", "description": "Scope the search inside another element, e.g. the comment just submitted. Prevents matching a stale element elsewhere on the page." },
         "nth": { "type": "integer", "minimum": 0, "description": "Disambiguate a legitimately repeated element. Requires expect_multiple." },
-        "expect_multiple": { "type": "boolean", "description": "Acknowledges that several elements match. Without it, an ambiguous match is an error - the agent never silently picks one." }
+        "expect_multiple": { "type": "boolean", "description": "Acknowledges that several elements match. Without it, an ambiguous match is an error - the agent never silently picks one." },
+        "frame": { "type": "string", "description": "The element is inside an iframe: the frame's name, a fragment of its URL, or a CSS selector for the <iframe> element." }
       }
     }
   }

@@ -27,6 +27,7 @@ import path from 'node:path';
 import { loadAppContext, PATHS, rel } from '../src/config.js';
 import { fromExecution, fromFinding, listDefects, renderDefect, upsert, writeReport, type DefectCandidate } from '../src/defect.js';
 import { writeDefectReview } from '../src/defect-review.js';
+import { onConfirmed } from '../src/regression.js';
 import { listExplorations } from '../src/exploration.js';
 import { readMissionFile } from '../src/validate.js';
 import type { ExecutionResult, TestMission } from '../src/types.js';
@@ -124,6 +125,8 @@ for (const decision of ['confirm', 'reject'] as const) {
 
   fs.writeFileSync(file, `${JSON.stringify(d, null, 2)}\n`, 'utf8');
   const md = writeReport(d);
+  // A defect confirmed for the first time becomes a permanent test.
+  const regression = decision === 'confirm' && !sameDecision ? onConfirmed(d) : [];
 
   console.log(`${fp} → ${d.status} by ${by}`);
   if (decision === 'confirm') {
@@ -140,6 +143,7 @@ for (const decision of ['confirm', 'reject'] as const) {
     console.log('Kept, not deleted. A defect the team decided was not a defect is information');
     console.log('the next run needs, or it gets re-raised forever.');
   }
+  for (const line of regression) console.log(`  ${line}`);
   announceReview();
   process.exit(0);
 }

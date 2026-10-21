@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ConsoleMessage, Page } from '@playwright/test';
-import { interpolate, MissingTestDataError, NavigationError, performAction } from './actions.js';
+import type { ConsoleMessage, Dialog, Page } from '@playwright/test';
+import { interpolate, MissingTestDataError, NavigationError, performAction, type RunState } from './actions.js';
 import { evaluateAssertion, summarise } from './assertions.js';
 import { loadAppContext, PATHS, rel, RUNTIME } from './config.js';
-import { AuthMissingError, BrowserLaunchError, BrowserSession, type Lease } from './browser-session.js';
+import { AuthMissingError, BrowserLaunchError, BrowserSession, SessionExpiredError, type Lease } from './browser-session.js';
+import { apiAuthHeaders, scriptedLogin, sessionStale, SIGN_IN_PAGE } from './auto-login.js';
 import { describeCandidates, TargetAmbiguousError, TargetNotFoundError } from './discovery.js';
 import { Evidence, newRunId } from './evidence.js';
 import { LocatorCache } from './locator-cache.js';
@@ -12,14 +13,13 @@ import { Observer } from './observer.js';
 import { capture, captureHighlighted, NetworkLog } from './step-evidence.js';
 import { apiHealthFindings } from './api-checks.js';
 import { FaultInjector } from './faults.js';
-import { forgetSaved } from './interpolate.js';
-import { describeViewport, layoutFindings, sweepLayout, viewportSize } from './layout.js';
-import { a11yFindings, runAxe } from './a11y.js';
+import { forgetSaved, setData } from './interpolate.js';
+import { describeViewport, viewportSize } from './layout.js';
 import { SecurityWatch } from './security.js';
-import { performanceFindings, readMetrics } from './performance.js';
-import { capturePage, compareWithBaseline, describeChange, viewportKey } from './visual.js';
+import { PageScanner } from './page-scan.js';
 import type {
   AssertionResult,
+  Example,
   ExecutionResult,
   FailureKind,
   Status,
@@ -58,6 +58,8 @@ interface Attempt {
   stepsUsed: number;
   elapsedMs: number;
   budgetExceeded: boolean;
+  /** The tab the mission ended on, when a step switched to another one. */
+  finalPage?: Page;
 }
 
 export interface RunOptions {
@@ -71,6 +73,10 @@ export interface RunOptions {
    * first app's base_url and fail in a way that looks like a product defect.
    */
   feature?: string;
+  /** The data-driven row to run: its values fill {data.<name>}. */
+  example?: Example;
+  /** Set on the one re-run after an expired session was renewed. */
+  retriedLogin?: boolean;
 }
 
 async function runAttempt(
@@ -84,6 +90,9 @@ async function runAttempt(
   observer?: Observer,
   network?: NetworkLog,
   faults?: FaultInjector,
+  scanner?: PageScanner,
+  state?: RunState,
+  apiHeaders?: () => Promise<Record<string, string>>,
 ): Promise<Attempt> {
   const startedAt = Date.now();
   const steps: StepRecord[] = [];
@@ -111,8 +120,9 @@ async function runAttempt(
     maxDiscoveryAttempts: maxAttempts,
     ...(network ? { network } : {}),
     visual: { testId: mission.test_id, evidenceDir: ev.dir },
+    ...(state ? { state } : {}),
     ...(full
-      ? { onResolved: (loc: import('@playwright/test').Locator, id: string) => captureHighlighted(page, loc, ev, `${tag}check-${id}`) }
+      ? { onResolved: (loc: import('@playwright/test').Locator, id: string) => captureHighlighted(assertCtx.page, loc, ev, `${tag}check-${id}`) }
       : {}),
   };
 
@@ -126,10 +136,16 @@ async function runAttempt(
     maxDiscoveryAttempts: maxAttempts,
     ...(faults ? { faults } : {}),
     ...(network ? { network } : {}),
+    ...(state ? { state } : {}),
+    ...(apiHeaders ? { apiHeaders } : {}),
+    // A step that switches tab moves the checks with it.
+    onPageChange: (p: Page) => {
+      assertCtx.page = p;
+    },
     ...(full
       ? {
           onResolved: (resolved: { locator: import('@playwright/test').Locator }, idx: number) =>
-            captureHighlighted(page, resolved.locator, ev, `${tag}step-${pad(idx)}-target`),
+            captureHighlighted(actionCtx.page, resolved.locator, ev, `${tag}step-${pad(idx)}-target`),
         }
       : {}),
   };
@@ -137,14 +153,14 @@ async function runAttempt(
   /** The page after a step: screenshot and URL, full evidence only. */
   const afterStep = async (step: StepRecord) => {
     if (!full) return;
-    const shot = await capture(page, ev, `${tag}step-${pad(step.index)}`);
+    const shot = await capture(actionCtx.page, ev, `${tag}step-${pad(step.index)}`);
     if (shot) step.screenshot = shot;
-    if (!page.isClosed()) step.url = page.url();
+    if (!actionCtx.page.isClosed()) step.url = actionCtx.page.url();
   };
   /** Checks that examined no single element (URL, sweeps) still get a picture of the page. */
   const withPageShot = async (res: AssertionResult) => {
     if (full && !res.screenshot) {
-      const shot = await capture(page, ev, `${tag}check-${res.id}`);
+      const shot = await capture(assertCtx.page, ev, `${tag}check-${res.id}`);
       if (shot) res.screenshot = shot;
     }
     return res;
@@ -160,6 +176,14 @@ async function runAttempt(
     } catch (err) {
       throw new NavigationError(`Could not open starting context ${url}: ${String(err)}`);
     }
+    // A signed-in test that lands on the sign-in page has an expired session:
+    // an environment problem, never a product defect.
+    const signedIn = (mission.auth?.strategy ?? 'storage_state') === 'storage_state';
+    const landed = new URL(page.url()).pathname;
+    if (signedIn && SIGN_IN_PAGE.test(landed) && !SIGN_IN_PAGE.test(new URL(url).pathname)) {
+      throw new SessionExpiredError(`The saved session for ${mission.role} has expired: opening ${new URL(url).pathname} landed on ${landed}.`);
+    }
+    await scanner?.scan(page);
   }
 
   let stepsUsed = 0;
@@ -215,7 +239,7 @@ async function runAttempt(
         ...(res.screenshot ? { screenshot: res.screenshot } : {}),
         ...(res.resolution_strategy ? { resolution_strategy: res.resolution_strategy } : {}),
         ...(res.resolution_note ? { resolution_note: res.resolution_note } : {}),
-        ...(!page.isClosed() ? { url: page.url() } : {}),
+        ...(!actionCtx.page.isClosed() ? { url: actionCtx.page.url() } : {}),
       });
       ev.log(`  ${res.passed ? 'assertion held' : 'assertion did not hold'}: ${res.statement}`);
       if (!res.passed && (res.critical ?? true)) {
@@ -228,6 +252,8 @@ async function runAttempt(
     try {
       const { step, trace: traceStep } = await performAction(actionCtx, action, steps.length + 1);
       await afterStep(step);
+      // A step that lands on a new page gets that page checked straight away.
+      await scanner?.scan(actionCtx.page);
       steps.push(step);
       if (traceStep) trace.push(traceStep);
       if (step.resolved_locator) {
@@ -340,6 +366,7 @@ async function runAttempt(
     stepsUsed,
     elapsedMs: Date.now() - startedAt,
     budgetExceeded,
+    finalPage: actionCtx.page,
   };
 }
 
@@ -378,7 +405,11 @@ export async function runMission(
   const cache = new LocatorCache();
   const startedAt = new Date();
 
-  ev.log(`=== ${mission.test_id} — ${mission.test_objective}`);
+  ev.log(`=== ${mission.test_id} — ${mission.test_objective}${options.example ? ` [example: ${options.example.name}]` : ''}`);
+  if (options.example) {
+    setData(runId, options.example.data);
+    ev.log(`Data: ${Object.entries(options.example.data).map(([k, v]: [string, string]) => `${k}="${v.length > 40 ? `${v.slice(0, 40)}… (${v.length} chars)` : v}"`).join(', ')} · expected ${mission.expected_outcome}`);
+  }
   ev.log(`Environment ${mission.environment} | base_url ${baseUrl} | role ${mission.role}`);
   ev.log(`Run id ${runId}`);
   if (mission.data_policy.creates_artifacts) {
@@ -403,10 +434,36 @@ export async function runMission(
   let faults: FaultInjector | undefined;
   let security: SecurityWatch | undefined;
   let perf: ExecutionResult['performance'];
+  let scanner: PageScanner | undefined;
+  let runState: RunState | undefined;
+  let onNewPage: ((p: Page) => void) | undefined;
+  let onDialog: ((d: Dialog) => Promise<void>) | undefined;
+  let detachState: (() => void) | undefined;
+  let pagesScanned: ExecutionResult['pages'];
+  let fatalError: unknown;
   let restoreViewport: { width: number; height: number } | undefined;
   let viewportLabel: string | undefined;
   let browserLabel: string | undefined;
   let visual: ExecutionResult['visual'];
+
+  // Sessions: renew a missing or stale one first, when the role can sign in by script.
+  const role = ctx.roles?.find((r) => r.name === mission.role);
+  const ref = mission.auth?.storage_state_ref ?? mission.role.toLowerCase();
+  if ((mission.auth?.strategy ?? 'storage_state') === 'storage_state' && role) {
+    const stale = sessionStale(role, ref);
+    if (stale && role.login) {
+      try {
+        await scriptedLogin(ctx, role, ref, (line) => ev.log(line));
+        await activeSession().discard(); // the open context still holds the old cookies
+      } catch (err) {
+        ev.log(`Automatic sign-in failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else if (stale === 'stale') {
+      ev.log(`! The saved session for ${mission.role} is older than ${role.session_max_age_minutes ?? 720} min; if the test lands on a sign-in page, run: npm run auth -- --role ${mission.role}`);
+    }
+  }
+  // Tokens are read from the main tab: the app keeps them per origin, not per tab.
+  const apiHeaders = role?.api_auth ? () => apiAuthHeaders(role, page!) : undefined;
 
   try {
     lease = await activeSession().lease(mission, (line) => ev.log(line), options.isReplay ?? false);
@@ -456,51 +513,60 @@ export async function runMission(
     observer.ignorePlanned(planned);
     network.markPlanned(planned);
 
-    attempt = await runAttempt(mission, page, cache, ev, runId, baseUrl, options.isReplay ?? false, observer, network, faults);
+    // Tabs, dialogs and downloads, for the steps and checks that need them.
+    // Playwright dismisses dialogs by default, which would cancel every
+    // "Are you sure you want to delete?"; here they are accepted unless a
+    // handle_dialog step said otherwise, and every message is kept.
+    const state: RunState = { mainPage: page, pages: [page], dialogs: [], downloads: [], downloadDir: path.join(ev.dir, 'downloads') };
+    runState = state;
+    const context = lease.context;
+    onNewPage = (p: Page) => {
+      state.pages.push(p);
+      ev.log(`  New tab opened: ${p.url() || '(loading)'}`);
+    };
+    onDialog = async (d: Dialog) => {
+      const plan = state.nextDialog ?? { accept: true };
+      state.nextDialog = undefined;
+      state.dialogs.push({ type: d.type(), message: d.message() });
+      ev.log(`  Dialog (${d.type()}): "${d.message()}" → ${plan.accept ? 'accepted' : 'dismissed'}`);
+      try {
+        if (plan.accept) await d.accept(plan.text);
+        else await d.dismiss();
+      } catch {
+        /* already handled */
+      }
+    };
+    context.on('page', onNewPage);
+    context.on('dialog', onDialog);
+    detachState = () => {
+      context.off('page', onNewPage!);
+      context.off('dialog', onDialog!);
+    };
+
+    // Every page the test reaches gets the page-level checks, not only the last.
+    scanner = new PageScanner(observer, ev, mission.test_id, {
+      visual: process.env.VISUAL !== 'off' && !options.isReplay,
+      a11y: process.env.A11Y !== 'off',
+      perf: process.env.PERF !== 'off',
+    });
+
+    attempt = await runAttempt(mission, page, cache, ev, runId, baseUrl, options.isReplay ?? false, observer, network, faults, scanner, state, apiHeaders);
 
     await observer.sweepPage();
     await network.settle();
     for (const f of apiHealthFindings(network)) observer.add(f);
-    // Layout at this size, whatever the mission asked about: sideways scroll,
-    // controls cut off or covered, tap targets too small on a phone.
-    try {
-      for (const f of layoutFindings(await sweepLayout(page), page.url())) observer.add(f);
-    } catch {
-      /* the page may be mid-navigation; layout is best effort */
-    }
-    // How the page LOOKS, against the approved baseline. Not on replays: the
-    // replay re-checks the verdict, and two screenshots would race the candidate.
-    if (process.env.VISUAL !== 'off' && !options.isReplay) {
-      try {
-        const vr = compareWithBaseline(await capturePage(page), mission.test_id, viewportKey(page), ev.dir);
-        visual = vr;
-        for (const f of [vr.current, vr.diff].filter(Boolean)) ev.add(f as string);
-        if (vr.status === 'changed') {
-          observer.add({
-            key: `visual:${mission.test_id}:${viewportKey(page)}`,
-            kind: 'visual_change',
-            severity: 'medium',
-            summary: `Looks different from the approved baseline: ${describeChange(vr)}`,
-            detail: `Diff (changes in red): ${vr.diff}\nIf the change is intended: npm run visual -- --approve ${mission.test_id} --by "<name>"`,
-            url: page.url(),
-          });
-        } else if (vr.status === 'no_baseline') {
-          ev.log(`Visual: no approved baseline yet — candidate saved. Approve with: npm run visual -- --approve ${mission.test_id} --by "<name>"`);
-        }
-      } catch (err) {
-        ev.log(`Visual comparison skipped: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
-      }
-    }
-
-    // Performance of the page as it last loaded. PERF=off skips it.
-    if (process.env.PERF !== 'off') {
-      try {
-        perf = await readMetrics(page);
-        for (const f of performanceFindings(perf)) observer.add(f);
-      } catch {
-        /* best effort */
-      }
-    }
+    // The page the test ends on, again: the state a flow ends in (a filled
+    // cart, an error shown) is often the one that breaks. Pages passed through
+    // on the way were already scanned as the test reached them.
+    await scanner.scan(attempt.finalPage ?? page, true);
+    const changed = scanner.pages.find((p) => p.visual?.status === 'changed');
+    visual = changed?.visual ?? scanner.pages[scanner.pages.length - 1]?.visual;
+    perf = scanner.pages[scanner.pages.length - 1]?.performance;
+    pagesScanned = scanner.pages.map((p) => ({
+      url: p.url,
+      ...(p.performance ? { performance: p.performance } : {}),
+      ...(p.visual ? { visual: p.visual.status } : {}),
+    }));
 
     // Passive security: cookies as they stand at the end, plus what the watch saw.
     try {
@@ -508,15 +574,6 @@ export async function runMission(
       for (const f of security.list()) observer.add(f);
     } catch {
       /* best effort */
-    }
-
-    // WCAG A/AA via axe-core on the page the mission ended on. A11Y=off skips it.
-    if (process.env.A11Y !== 'off') {
-      try {
-        for (const f of a11yFindings(await runAxe(page), page.url())) observer.add(f);
-      } catch (err) {
-        ev.log(`Accessibility scan skipped: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
-      }
     }
 
     // Evidence on failure. Cheap on the happy path, thorough when it matters.
@@ -549,6 +606,7 @@ export async function runMission(
             ? 'budget_exceeded'
             : 'action_error';
     fatal = { kind, message: err instanceof Error ? err.message : String(err) };
+    fatalError = err;
     ev.log(`Run could not proceed (${kind}): ${fatal.message}`);
   } finally {
     /**
@@ -559,12 +617,28 @@ export async function runMission(
      */
     observer?.stop();
     security?.stop();
+    detachState?.();
+    // Tabs a mission opened are its own; the next mission starts on the main one.
+    for (const p of runState?.pages ?? []) if (p !== runState?.mainPage) await p.close().catch(() => undefined);
     await faults?.clear();
     forgetSaved(runId);
     if (restoreViewport && page && !page.isClosed()) await page.setViewportSize(restoreViewport).catch(() => undefined);
     await network?.stop();
     if (consoleLog && page && !page.isClosed()) page.off('console', consoleLog);
     if (fatal) await activeSession().discard();
+  }
+
+  // An expired session, with a role that can sign in by script: renew it and
+  // run the test once more. A second expiry is reported as it is.
+  if (fatalError instanceof SessionExpiredError && role?.login && !options.retriedLogin) {
+    ev.log('Session expired: signing in again and re-running the test once.');
+    try {
+      await scriptedLogin(ctx, role, ref, (line) => ev.log(line));
+      await activeSession().discard();
+      return runMission(mission, { ...options, retriedLogin: true, runId: undefined, evidence: undefined });
+    } catch (err) {
+      ev.log(`Re-sign-in failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // One deterministic replay before we are willing to say FAIL. A single FAIL
@@ -654,10 +728,12 @@ export async function runMission(
     test_objective: mission.test_objective,
     environment: mission.environment,
     role: mission.role,
+    ...(options.example ? { example: options.example.name } : {}),
     ...(browserLabel ? { browser: browserLabel } : {}),
     ...(viewportLabel ? { viewport: viewportLabel } : {}),
     ...(visual ? { visual } : {}),
     ...(perf ? { performance: perf } : {}),
+    ...(pagesScanned?.length ? { pages: pagesScanned } : {}),
     session: {
       fresh: lease?.fresh ?? true,
       ...(lease?.inheritedFrom ? { inherited_from: lease.inheritedFrom } : {}),

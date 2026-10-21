@@ -38,6 +38,46 @@ export interface ActionContext {
   faults?: FaultInjector;
   /** The mission's API traffic; api_request records into it. */
   network?: NetworkLog;
+  /** Tabs, dialogs and downloads seen so far in this mission. */
+  state?: RunState;
+  /** Called when a step moves the mission to another tab, so checks follow it. */
+  onPageChange?: (page: Page) => void;
+  /** Auth headers for api_request (the role's api_auth). Values are never logged. */
+  apiHeaders?: () => Promise<Record<string, string>>;
+}
+
+/**
+ * What a mission has seen beyond the page itself: the tabs it opened, the
+ * dialogs that appeared, the files it downloaded. Shared by steps and checks.
+ */
+export interface RunState {
+  mainPage: Page;
+  /** Every tab opened during the mission, in order. */
+  pages: Page[];
+  dialogs: { type: string; message: string }[];
+  /** How the next dialog is answered; afterwards back to accept. */
+  nextDialog?: { accept: boolean; text?: string };
+  downloads: { name: string; path: string; size: number }[];
+  downloadDir: string;
+}
+
+/** The tab a switch_tab step asks for, waiting briefly for a new one to open. */
+async function findTab(ctx: ActionContext, which: string): Promise<Page> {
+  const state = ctx.state!;
+  if (which === 'original') return state.mainPage;
+  const deadline = Date.now() + ctx.actionTimeoutMs;
+  for (;;) {
+    const open = state.pages.filter((p) => !p.isClosed());
+    const hit =
+      which === 'new'
+        ? [...open].reverse().find((p) => p !== ctx.page)
+        : open.find((p) => p.url().includes(which));
+    if (hit) return hit;
+    if (Date.now() > deadline) {
+      throw new Error(which === 'new' ? 'No new tab or window opened.' : `No open tab whose URL contains "${which}".`);
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
 }
 
 export { interpolate } from './interpolate.js';
@@ -110,6 +150,45 @@ export async function performAction(
     step.resolution_strategy = 'none';
     step.duration_ms = Date.now() - started;
     return { step, trace: { action: 'fail_requests', value: JSON.stringify(spec) } };
+  }
+
+  // --- Tabs, dialogs, scrolling: no element needed --------------------------
+  if (action.action === 'switch_tab' || action.action === 'close_tab') {
+    if (!ctx.state) throw new Error(`Step ${index} (${action.action}): tab tracking is not available in this run.`);
+    if (action.action === 'close_tab') {
+      if (ctx.page !== ctx.state.mainPage) await ctx.page.close().catch(() => undefined);
+      ctx.page = ctx.state.mainPage;
+    } else {
+      ctx.page = await findTab(ctx, value ?? 'new');
+    }
+    await ctx.page.bringToFront().catch(() => undefined);
+    await ctx.page.waitForLoadState('domcontentloaded', { timeout }).catch(() => undefined);
+    ctx.onPageChange?.(ctx.page);
+    step.resolved_locator = `${action.action === 'close_tab' ? 'closed tab; now on' : 'now on'} ${ctx.page.url()}`;
+    step.resolution_strategy = 'none';
+    step.duration_ms = Date.now() - started;
+    return { step, trace: { action: action.action, ...(value ? { value } : {}) } };
+  }
+
+  if (action.action === 'handle_dialog') {
+    if (!ctx.state) throw new Error(`Step ${index} (handle_dialog): dialog handling is not available in this run.`);
+    ctx.state.nextDialog = { accept: action.dialog !== 'dismiss', ...(value !== undefined ? { text: value } : {}) };
+    step.resolved_locator = `next dialog will be ${action.dialog === 'dismiss' ? 'dismissed' : 'accepted'}${value !== undefined ? ` with "${value}"` : ''}`;
+    step.resolution_strategy = 'none';
+    step.duration_ms = Date.now() - started;
+    return { step, trace: { action: 'handle_dialog', value: action.dialog ?? 'accept' } };
+  }
+
+  if (action.action === 'scroll' && !action.target) {
+    const where = value === 'top' ? 'top' : 'bottom';
+    await ctx.page.evaluate((w) => window.scrollTo(0, w === 'top' ? 0 : document.body.scrollHeight), where);
+    // Infinite lists load on scroll: give them a moment, then let the network settle.
+    await ctx.page.waitForTimeout(500);
+    await ctx.page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => undefined);
+    step.resolved_locator = `scrolled to the ${where}`;
+    step.resolution_strategy = 'none';
+    step.duration_ms = Date.now() - started;
+    return { step, trace: { action: 'scroll', value: where } };
   }
 
   if (action.action === 'expire_session') {
@@ -209,6 +288,33 @@ export async function performAction(
       step.instruction = `${action.instruction} (${path.basename(file)})`;
       break;
     }
+    case 'download': {
+      if (!ctx.state) throw new Error(`Step ${index} (download): download tracking is not available in this run.`);
+      const [dl] = await Promise.all([ctx.page.waitForEvent('download', { timeout }), locator.click({ timeout })]);
+      fs.mkdirSync(ctx.state.downloadDir, { recursive: true });
+      const saved = path.join(ctx.state.downloadDir, dl.suggestedFilename());
+      await dl.saveAs(saved);
+      const size = fs.statSync(saved).size;
+      ctx.state.downloads.push({ name: dl.suggestedFilename(), path: saved, size });
+      step.resolved_locator = `${step.resolved_locator ?? ''} → downloaded ${dl.suggestedFilename()} (${size} bytes)`;
+      break;
+    }
+    case 'drag': {
+      if (!action.to) throw new Error(`Step ${index} (drag) needs "to": where to drop it.`);
+      const drop = await resolveTarget(ctx.page, action.to, ctx.cache, {
+        timeoutMs: timeout,
+        maxAttempts: ctx.maxDiscoveryAttempts,
+        runId: ctx.runId,
+        smart: 'full',
+        intent: action.instruction,
+      });
+      await locator.dragTo(drop.locator, { timeout });
+      step.resolved_locator = `${step.resolved_locator ?? ''} → dropped on ${drop.description}`;
+      break;
+    }
+    case 'scroll':
+      await locator.scrollIntoViewIfNeeded({ timeout });
+      break;
     case 'verify':
       // Handled by the executor: it owns the assertion map.
       break;
@@ -271,8 +377,10 @@ async function apiRequest(ctx: ActionContext, action: MissionAction, index: numb
   let contentType: string | undefined;
   let failure: string | undefined;
   try {
+    const headers = (await ctx.apiHeaders?.()) ?? {};
     const res = await ctx.page.request.fetch(url, {
       method,
+      ...(Object.keys(headers).length ? { headers } : {}),
       ...(data !== undefined ? { data } : {}),
       failOnStatusCode: false,
       timeout: ctx.actionTimeoutMs,

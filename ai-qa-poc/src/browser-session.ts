@@ -66,6 +66,9 @@ export class AuthMissingError extends Error {
   readonly kind = 'auth_missing';
 }
 
+/** The saved session exists but the server no longer accepts it. */
+export class SessionExpiredError extends AuthMissingError {}
+
 export class BrowserLaunchError extends Error {
   readonly kind = 'browser_launch';
 }
